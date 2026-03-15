@@ -1,4 +1,4 @@
-import type { InsurancePlan, AdjudicationResult, CptCode } from "../types.js";
+import type {InsurancePlan, AdjudicationResult, CptCode} from "../types.js";
 
 /**
  * Determines the copay amount based on the primary CPT code category.
@@ -13,15 +13,15 @@ function resolveCopay(
     const cpt = cptCodeData[code];
     if (!cpt) continue;
     switch (cpt.category) {
-      case "emergency":
-        return plan.copay.emergency;
-      case "office_visit":
-        return plan.copay.officeVisit;
-      case "specialist":
-      case "procedure":
-      case "imaging":
-      case "therapy":
-        return plan.copay.specialist;
+    case "emergency":
+      return plan.copay.emergency;
+    case "office_visit":
+      return plan.copay.officeVisit;
+    case "specialist":
+    case "procedure":
+    case "imaging":
+    case "therapy":
+      return plan.copay.specialist;
     }
   }
   return plan.copay.officeVisit;
