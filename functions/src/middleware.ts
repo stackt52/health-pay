@@ -1,7 +1,7 @@
-import type { Request, Response, NextFunction } from "express";
+import type {Request, Response, NextFunction} from "express";
 import * as logger from "firebase-functions/logger";
-import { v4 as uuidv4 } from "uuid";
-import { AppError } from "./types.js";
+import {v4 as uuidv4} from "uuid";
+import {AppError} from "./types.js";
 
 // Augment Express Request to carry correlationId
 declare global {
@@ -45,7 +45,7 @@ export function errorHandler(
   err: Error,
   req: Request,
   res: Response,
-  // Express requires the 4-arg signature even when _next is unused
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   _next: NextFunction,
 ): void {
   const correlationId = req.correlationId ?? "unknown";
@@ -54,6 +54,8 @@ export function errorHandler(
     logger.warn("Application error", {
       code: err.code,
       statusCode: err.statusCode,
+      message: err.message,
+      ...(err.details !== undefined ? {details: err.details} : {}),
       correlationId,
     });
     res.status(err.statusCode).json({
@@ -61,7 +63,7 @@ export function errorHandler(
         code: err.code,
         message: err.message,
         correlationId,
-        ...(err.details !== undefined ? { details: err.details } : {}),
+        ...(err.details !== undefined ? {details: err.details} : {}),
       },
     });
     return;
@@ -70,6 +72,7 @@ export function errorHandler(
   // Never expose internal details or stack traces in API responses
   logger.error("Unhandled error", {
     message: err.message,
+    stack: err.stack,
     correlationId,
   });
 
