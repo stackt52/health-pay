@@ -1,7 +1,7 @@
-import { Router } from "express";
-import type { Request, Response, NextFunction } from "express";
-import { FieldValue, Timestamp } from "firebase-admin/firestore";
-import { db } from "../db.js";
+import {Router} from "express";
+import type {Request, Response, NextFunction} from "express";
+import {FieldValue, Timestamp} from "firebase-admin/firestore";
+import {db} from "../db.js";
 
 const router = Router();
 
@@ -81,8 +81,8 @@ router.post(
     ];
 
     for (const cpt of cptCodes) {
-      const { id, ...data } = cpt;
-      batch.set(db.collection("cpt_codes").doc(id), data, { merge: true });
+      const {id, ...data} = cpt;
+      batch.set(db.collection("cpt_codes").doc(id), data, {merge: true});
     }
 
     // ─── Insurance Plans ──────────────────────────────────────────────────────
@@ -92,12 +92,12 @@ router.post(
         name: "HealthPay Gold",
         annualDeductible: 1500,
         deductibleMet: 800,
-        copay: { officeVisit: 30, specialist: 50, emergency: 250 },
+        copay: {officeVisit: 30, specialist: 50, emergency: 250},
         coinsuranceRate: 0.2,
         outOfPocketMax: 6000,
         coveredCptCodes: ["99213", "99214", "99283", "90837", "73721", "29881"],
       },
-      { merge: true },
+      {merge: true},
     );
 
     batch.set(
@@ -106,12 +106,12 @@ router.post(
         name: "HealthPay Bronze",
         annualDeductible: 5000,
         deductibleMet: 200,
-        copay: { officeVisit: 75, specialist: 100, emergency: 500 },
+        copay: {officeVisit: 75, specialist: 100, emergency: 500},
         coinsuranceRate: 0.4,
         outOfPocketMax: 8000,
         coveredCptCodes: ["99213", "99214", "99283"],
       },
-      { merge: true },
+      {merge: true},
     );
 
     // ─── Providers ────────────────────────────────────────────────────────────
@@ -130,7 +130,7 @@ router.post(
         licenseExpiry: futureExpiry,
         createdAt: FieldValue.serverTimestamp(),
       },
-      { merge: true },
+      {merge: true},
     );
 
     batch.set(
@@ -141,7 +141,7 @@ router.post(
         licenseExpiry: futureExpiry,
         createdAt: FieldValue.serverTimestamp(),
       },
-      { merge: true },
+      {merge: true},
     );
 
     batch.set(
@@ -152,7 +152,7 @@ router.post(
         licenseExpiry: pastExpiry,
         createdAt: FieldValue.serverTimestamp(),
       },
-      { merge: true },
+      {merge: true},
     );
 
     // ─── Patients ─────────────────────────────────────────────────────────────
@@ -163,7 +163,7 @@ router.post(
         planId: "PLAN_GOLD_001",
         createdAt: FieldValue.serverTimestamp(),
       },
-      { merge: true },
+      {merge: true},
     );
 
     batch.set(
@@ -173,7 +173,7 @@ router.post(
         planId: "PLAN_GOLD_001",
         createdAt: FieldValue.serverTimestamp(),
       },
-      { merge: true },
+      {merge: true},
     );
 
     batch.set(
@@ -183,7 +183,7 @@ router.post(
         planId: "PLAN_BRONZE_001",
         createdAt: FieldValue.serverTimestamp(),
       },
-      { merge: true },
+      {merge: true},
     );
 
     await batch.commit();
@@ -192,35 +192,35 @@ router.post(
     // ~2-3 normal office visits per week, normal amounts
     const normalClaimsData = [
       // Week 8-9 (baseline)
-      { daysAgo: 60, patientId: "PAT_001", cptCodes: ["99213"], billedAmount: 145 },
-      { daysAgo: 58, patientId: "PAT_002", cptCodes: ["99214"], billedAmount: 240 },
-      { daysAgo: 55, patientId: "PAT_001", cptCodes: ["99213"], billedAmount: 150 },
-      { daysAgo: 53, patientId: "PAT_003", cptCodes: ["99213"], billedAmount: 155 },
-      { daysAgo: 51, patientId: "PAT_002", cptCodes: ["90837"], billedAmount: 195 },
+      {daysAgo: 60, patientId: "PAT_001", cptCodes: ["99213"], billedAmount: 145},
+      {daysAgo: 58, patientId: "PAT_002", cptCodes: ["99214"], billedAmount: 240},
+      {daysAgo: 55, patientId: "PAT_001", cptCodes: ["99213"], billedAmount: 150},
+      {daysAgo: 53, patientId: "PAT_003", cptCodes: ["99213"], billedAmount: 155},
+      {daysAgo: 51, patientId: "PAT_002", cptCodes: ["90837"], billedAmount: 195},
       // Week 6-7
-      { daysAgo: 48, patientId: "PAT_001", cptCodes: ["99214"], billedAmount: 245 },
-      { daysAgo: 46, patientId: "PAT_003", cptCodes: ["99213"], billedAmount: 150 },
-      { daysAgo: 44, patientId: "PAT_002", cptCodes: ["90837"], billedAmount: 200 },
-      { daysAgo: 41, patientId: "PAT_001", cptCodes: ["99213"], billedAmount: 148 },
-      { daysAgo: 39, patientId: "PAT_003", cptCodes: ["99214"], billedAmount: 255 },
+      {daysAgo: 48, patientId: "PAT_001", cptCodes: ["99214"], billedAmount: 245},
+      {daysAgo: 46, patientId: "PAT_003", cptCodes: ["99213"], billedAmount: 150},
+      {daysAgo: 44, patientId: "PAT_002", cptCodes: ["90837"], billedAmount: 200},
+      {daysAgo: 41, patientId: "PAT_001", cptCodes: ["99213"], billedAmount: 148},
+      {daysAgo: 39, patientId: "PAT_003", cptCodes: ["99214"], billedAmount: 255},
       // Week 4-5
-      { daysAgo: 36, patientId: "PAT_002", cptCodes: ["99213"], billedAmount: 150 },
-      { daysAgo: 34, patientId: "PAT_001", cptCodes: ["90837"], billedAmount: 200 },
-      { daysAgo: 32, patientId: "PAT_003", cptCodes: ["99213"], billedAmount: 145 },
-      { daysAgo: 29, patientId: "PAT_002", cptCodes: ["99214"], billedAmount: 250 },
-      { daysAgo: 27, patientId: "PAT_001", cptCodes: ["73721"], billedAmount: 1180 },
+      {daysAgo: 36, patientId: "PAT_002", cptCodes: ["99213"], billedAmount: 150},
+      {daysAgo: 34, patientId: "PAT_001", cptCodes: ["90837"], billedAmount: 200},
+      {daysAgo: 32, patientId: "PAT_003", cptCodes: ["99213"], billedAmount: 145},
+      {daysAgo: 29, patientId: "PAT_002", cptCodes: ["99214"], billedAmount: 250},
+      {daysAgo: 27, patientId: "PAT_001", cptCodes: ["73721"], billedAmount: 1180},
       // Week 2-3
-      { daysAgo: 24, patientId: "PAT_003", cptCodes: ["99213"], billedAmount: 152 },
-      { daysAgo: 22, patientId: "PAT_002", cptCodes: ["90837"], billedAmount: 198 },
-      { daysAgo: 20, patientId: "PAT_001", cptCodes: ["29881"], billedAmount: 4400 },
-      { daysAgo: 18, patientId: "PAT_003", cptCodes: ["99214"], billedAmount: 248 },
-      { daysAgo: 15, patientId: "PAT_002", cptCodes: ["99213"], billedAmount: 150 },
+      {daysAgo: 24, patientId: "PAT_003", cptCodes: ["99213"], billedAmount: 152},
+      {daysAgo: 22, patientId: "PAT_002", cptCodes: ["90837"], billedAmount: 198},
+      {daysAgo: 20, patientId: "PAT_001", cptCodes: ["29881"], billedAmount: 4400},
+      {daysAgo: 18, patientId: "PAT_003", cptCodes: ["99214"], billedAmount: 248},
+      {daysAgo: 15, patientId: "PAT_002", cptCodes: ["99213"], billedAmount: 150},
       // Last week
-      { daysAgo: 6, patientId: "PAT_001", cptCodes: ["99213"], billedAmount: 150 },
-      { daysAgo: 5, patientId: "PAT_003", cptCodes: ["99214"], billedAmount: 245 },
-      { daysAgo: 4, patientId: "PAT_002", cptCodes: ["90837"], billedAmount: 200 },
-      { daysAgo: 3, patientId: "PAT_001", cptCodes: ["99213"], billedAmount: 150 },
-      { daysAgo: 2, patientId: "PAT_003", cptCodes: ["99213"], billedAmount: 148 },
+      {daysAgo: 6, patientId: "PAT_001", cptCodes: ["99213"], billedAmount: 150},
+      {daysAgo: 5, patientId: "PAT_003", cptCodes: ["99214"], billedAmount: 245},
+      {daysAgo: 4, patientId: "PAT_002", cptCodes: ["90837"], billedAmount: 200},
+      {daysAgo: 3, patientId: "PAT_001", cptCodes: ["99213"], billedAmount: 150},
+      {daysAgo: 2, patientId: "PAT_003", cptCodes: ["99213"], billedAmount: 148},
     ];
 
     const normalBatch = db.batch();
@@ -372,4 +372,4 @@ router.post(
 );
 
 export default router;
-export { router as seedRouter };
+export {router as seedRouter};
