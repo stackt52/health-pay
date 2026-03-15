@@ -1,7 +1,7 @@
-import { Router } from "express";
-import type { Request, Response, NextFunction } from "express";
-import { Timestamp } from "firebase-admin/firestore";
-import { db } from "../db.js";
+import {Router} from "express";
+import type {Request, Response, NextFunction} from "express";
+import {Timestamp} from "firebase-admin/firestore";
+import {db} from "../db.js";
 import {
   AppError,
   type Claim,
@@ -9,8 +9,10 @@ import {
   type ClaimForAnalysis,
   type CptCode,
   type CptStats,
+  type LicenseStatus,
+  type Provider,
 } from "../types.js";
-import { computeRiskScore } from "../engines/anomaly.js";
+import {computeRiskScore} from "../engines/anomaly.js";
 
 const router = Router();
 
@@ -21,6 +23,182 @@ function asyncHandler(
     fn(req, res, next).catch(next);
   };
 }
+
+const VALID_LICENSE_STATUSES: LicenseStatus[] = ["active", "expired", "suspended"];
+
+// ─── POST /api/providers ──────────────────────────────────────────────────────
+
+router.post(
+  "/",
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const {name, licenseStatus, licenseExpiry} = req.body as {
+      name?: string;
+      licenseStatus?: string;
+      licenseExpiry?: string;
+    };
+
+    if (!name || !licenseStatus || !licenseExpiry) {
+      throw new AppError(
+        400,
+        "VALIDATION_ERROR",
+        "Missing required fields: name, licenseStatus, licenseExpiry",
+      );
+    }
+
+    if (!VALID_LICENSE_STATUSES.includes(licenseStatus as LicenseStatus)) {
+      throw new AppError(
+        400,
+        "VALIDATION_ERROR",
+        `licenseStatus must be one of: ${VALID_LICENSE_STATUSES.join(", ")}`,
+      );
+    }
+
+    const expiryDate = new Date(licenseExpiry);
+    if (isNaN(expiryDate.getTime())) {
+      throw new AppError(
+        400,
+        "VALIDATION_ERROR",
+        "licenseExpiry must be a valid ISO 8601 date",
+      );
+    }
+
+    const now = Timestamp.now();
+    const providerRef = db.collection("providers").doc();
+    const provider: Provider = {
+      id: providerRef.id,
+      name,
+      licenseStatus: licenseStatus as LicenseStatus,
+      licenseExpiry: Timestamp.fromDate(expiryDate),
+      createdAt: now,
+    };
+
+    await providerRef.set(provider);
+    res.status(201).json(provider);
+  }),
+);
+
+// ─── GET /api/providers ───────────────────────────────────────────────────────
+
+router.get(
+  "/",
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const {licenseStatus} = req.query as {licenseStatus?: string};
+
+    let query: FirebaseFirestore.Query = db.collection("providers");
+    if (licenseStatus) {
+      if (!VALID_LICENSE_STATUSES.includes(licenseStatus as LicenseStatus)) {
+        throw new AppError(
+          400,
+          "VALIDATION_ERROR",
+          `licenseStatus must be one of: ${VALID_LICENSE_STATUSES.join(", ")}`,
+        );
+      }
+      query = query.where("licenseStatus", "==", licenseStatus);
+    }
+
+    const snap = await query.get();
+    const providers = snap.docs.map((d) => ({id: d.id, ...d.data()}));
+    res.json({providers, total: providers.length});
+  }),
+);
+
+// ─── GET /api/providers/:id ───────────────────────────────────────────────────
+
+router.get(
+  "/:id",
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const providerId = String(req.params["id"]);
+    const snap = await db.collection("providers").doc(providerId).get();
+    if (!snap.exists) {
+      throw new AppError(
+        404,
+        "PROVIDER_NOT_FOUND",
+        `Provider ${providerId} not found`,
+      );
+    }
+    res.json({id: snap.id, ...snap.data()});
+  }),
+);
+
+// ─── PUT /api/providers/:id ───────────────────────────────────────────────────
+
+router.put(
+  "/:id",
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const providerId = String(req.params["id"]);
+    const {name, licenseStatus, licenseExpiry} = req.body as {
+      name?: string;
+      licenseStatus?: string;
+      licenseExpiry?: string;
+    };
+
+    const snap = await db.collection("providers").doc(providerId).get();
+    if (!snap.exists) {
+      throw new AppError(
+        404,
+        "PROVIDER_NOT_FOUND",
+        `Provider ${providerId} not found`,
+      );
+    }
+
+    if (
+      licenseStatus !== undefined &&
+      !VALID_LICENSE_STATUSES.includes(licenseStatus as LicenseStatus)
+    ) {
+      throw new AppError(
+        400,
+        "VALIDATION_ERROR",
+        `licenseStatus must be one of: ${VALID_LICENSE_STATUSES.join(", ")}`,
+      );
+    }
+
+    const updates: Record<string, unknown> = {};
+    if (name !== undefined) updates.name = name;
+    if (licenseStatus !== undefined) updates.licenseStatus = licenseStatus;
+    if (licenseExpiry !== undefined) {
+      const expiryDate = new Date(licenseExpiry);
+      if (isNaN(expiryDate.getTime())) {
+        throw new AppError(
+          400,
+          "VALIDATION_ERROR",
+          "licenseExpiry must be a valid ISO 8601 date",
+        );
+      }
+      updates.licenseExpiry = Timestamp.fromDate(expiryDate);
+    }
+
+    if (Object.keys(updates).length === 0) {
+      throw new AppError(
+        400,
+        "VALIDATION_ERROR",
+        "No updatable fields provided. Accepted: name, licenseStatus, licenseExpiry",
+      );
+    }
+
+    await db.collection("providers").doc(providerId).update(updates);
+    const updated = await db.collection("providers").doc(providerId).get();
+    res.json({id: updated.id, ...updated.data()});
+  }),
+);
+
+// ─── DELETE /api/providers/:id ────────────────────────────────────────────────
+
+router.delete(
+  "/:id",
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const providerId = String(req.params["id"]);
+    const snap = await db.collection("providers").doc(providerId).get();
+    if (!snap.exists) {
+      throw new AppError(
+        404,
+        "PROVIDER_NOT_FOUND",
+        `Provider ${providerId} not found`,
+      );
+    }
+    await db.collection("providers").doc(providerId).delete();
+    res.status(204).send();
+  }),
+);
 
 // ─── GET /api/providers/:id/dashboard ─────────────────────────────────────────
 
@@ -47,7 +225,7 @@ router.get(
       .get();
 
     const claims = claimsSnap.docs.map(
-      (d) => ({ id: d.id, ...d.data() }) as Claim,
+      (d) => ({id: d.id, ...d.data()}) as Claim,
     );
 
     // Summary by status
@@ -84,8 +262,11 @@ router.get(
     if (processedClaims.length > 0) {
       const totalMs = processedClaims.reduce((sum, c) => {
         const submitted = c.submittedAt.toDate().getTime();
-        const billed = c.patientBilledAt!.toDate().getTime();
-        return sum + (billed - submitted);
+        const billed = c.patientBilledAt?.toDate().getTime();
+        if (billed !== undefined) {
+          return sum + (billed - submitted);
+        }
+        return sum;
       }, 0);
       avgProcessingTimeMinutes =
         totalMs / processedClaims.length / (60 * 1000);
@@ -100,9 +281,9 @@ router.get(
 
     // Latest risk score
     const latestRiskScore =
-      claims.length > 0
-        ? Math.max(...claims.map((c) => c.riskScore ?? 0))
-        : 0;
+      claims.length > 0 ?
+        Math.max(...claims.map((c) => c.riskScore ?? 0)) :
+        0;
 
     res.json({
       providerId,
@@ -125,7 +306,7 @@ router.post(
   "/:id/risk-score",
   asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const providerId = String(req.params["id"]);
-    const { windowDays = 90 } = req.body as { windowDays?: number };
+    const {windowDays = 90} = req.body as { windowDays?: number };
 
     const providerSnap = await db
       .collection("providers")
@@ -182,4 +363,4 @@ router.post(
 );
 
 export default router;
-export { router as providersRouter };
+export {router as providersRouter};
