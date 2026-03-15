@@ -7,6 +7,8 @@ import {
 } from "./middleware.js";
 import claimsRouter from "./routes/claims.js";
 import providersRouter from "./routes/providers.js";
+import patientsRouter from "./routes/patients.js";
+import insurancePlansRouter from "./routes/insurancePlans.js";
 import seedRouter from "./routes/seed.js";
 
 export function createApp(): express.Application {
@@ -14,18 +16,20 @@ export function createApp(): express.Application {
 
   // ─── Global middleware ──────────────────────────────────────────────────────
   app.use(cors());
-  app.use(express.json({ limit: "1mb" }));
+  app.use(express.json({limit: "1mb"}));
   app.use(correlationMiddleware);
   app.use(requestLogger);
 
   // ─── Routes ─────────────────────────────────────────────────────────────────
   app.use("/api/claims", claimsRouter);
   app.use("/api/providers", providersRouter);
+  app.use("/api/patients", patientsRouter);
+  app.use("/api/insurance-plans", insurancePlansRouter);
   app.use("/api/seed", seedRouter);
 
   // Health check — useful for Cloud Run / uptime monitors
   app.get("/api/health", (_req, res) => {
-    res.json({ status: "ok", service: "healthpay-claims-api" });
+    res.json({status: "ok", service: "healthpay-claims-api"});
   });
 
   // ─── 404 catch-all ──────────────────────────────────────────────────────────
