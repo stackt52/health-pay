@@ -1,9 +1,9 @@
-import { setGlobalOptions } from "firebase-functions";
-import { onRequest } from "firebase-functions/https";
-import { createApp } from "./app.js";
+import {setGlobalOptions} from "firebase-functions";
+import {onRequest} from "firebase-functions/https";
+import {createApp} from "./app.js";
 
 // Cost control: limit concurrent containers globally
-setGlobalOptions({ maxInstances: 10 });
+setGlobalOptions({maxInstances: 10});
 
 const expressApp = createApp();
 
