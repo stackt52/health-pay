@@ -1,9 +1,8 @@
-import { Router } from "express";
-import type { Request, Response, NextFunction } from "express";
-import { FieldValue, Timestamp } from "firebase-admin/firestore";
+import {Router} from "express";
+import type {Request, Response, NextFunction} from "express";
+import {FieldValue, Timestamp} from "firebase-admin/firestore";
 import * as logger from "firebase-functions/logger";
-import { v4 as uuidv4 } from "uuid";
-import { db } from "../db.js";
+import {db} from "../db.js";
 import {
   AppError,
   type SubmitClaimRequest,
@@ -16,9 +15,9 @@ import {
   type ClaimForAnalysis,
   type CptStats,
 } from "../types.js";
-import { createDefaultRulesEngine } from "../engines/rules.js";
-import { calculateAdjudication } from "../engines/adjudication.js";
-import { computeRiskScore } from "../engines/anomaly.js";
+import {createDefaultRulesEngine} from "../engines/rules.js";
+import {calculateAdjudication} from "../engines/adjudication.js";
+import {computeRiskScore} from "../engines/anomaly.js";
 
 const router = Router();
 
@@ -30,35 +29,61 @@ function asyncHandler(
   };
 }
 
+const VALID_CLAIM_STATUSES = new Set<ClaimStatus>([
+  "SUBMITTED",
+  "VALIDATED",
+  "ADJUDICATED",
+  "PATIENT_BILLED",
+  "PAID",
+  "DENIED",
+  "FLAGGED",
+]);
+
 // ─── POST /api/claims — Submit a claim ────────────────────────────────────────
 
 router.post(
   "/",
   asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const correlationId = req.correlationId;
-    const body = req.body as SubmitClaimRequest;
+    // Validate from raw body before casting so runtime types are checked correctly
+    const raw = req.body as Record<string, unknown>;
 
-    if (
-      !body.providerId ||
-      !body.patientId ||
-      !Array.isArray(body.cptCodes) ||
-      body.cptCodes.length === 0 ||
-      body.billedAmount == null
-    ) {
+    // ── Input validation ────────────────────────────────────────────────────
+    const missing: string[] = [];
+    if (!raw["providerId"]) missing.push("providerId");
+    if (!raw["patientId"]) missing.push("patientId");
+    if (!Array.isArray(raw["cptCodes"]) || (raw["cptCodes"] as unknown[]).length === 0) missing.push("cptCodes");
+    if (raw["billedAmount"] == null) missing.push("billedAmount");
+
+    if (missing.length > 0) {
       throw new AppError(
         400,
         "VALIDATION_ERROR",
-        "Missing required fields: providerId, patientId, cptCodes, billedAmount",
+        `Missing required fields: ${missing.join(", ")}`,
       );
     }
 
-    if (body.billedAmount <= 0) {
+    if (typeof raw["billedAmount"] !== "number" || isNaN(raw["billedAmount"])) {
+      throw new AppError(400, "VALIDATION_ERROR", "billedAmount must be a number");
+    }
+
+    if (raw["billedAmount"] <= 0) {
+      throw new AppError(400, "VALIDATION_ERROR", "billedAmount must be a positive number");
+    }
+
+    const cptCodesRaw = raw["cptCodes"] as unknown[];
+    const invalidCptCodes = cptCodesRaw.filter(
+      (c) => typeof c !== "string" || (c as string).trim() === "",
+    );
+    if (invalidCptCodes.length > 0) {
       throw new AppError(
         400,
         "VALIDATION_ERROR",
-        "billedAmount must be a positive number",
+        "cptCodes must be an array of non-empty strings",
       );
     }
+
+    const body = raw as unknown as SubmitClaimRequest;
 
     // Idempotency — if we have seen this key before, return the existing claim
     if (body.idempotencyKey) {
@@ -69,7 +94,7 @@ router.post(
         .get();
       if (!existing.empty) {
         const doc = existing.docs[0];
-        res.status(200).json({ claimId: doc.id, ...doc.data(), idempotent: true });
+        res.status(200).json({claimId: doc.id, ...doc.data(), idempotent: true});
         return;
       }
     }
@@ -95,8 +120,8 @@ router.post(
       );
     }
 
-    const provider = { id: providerSnap.id, ...providerSnap.data() } as Provider;
-    const patient = { id: patientSnap.id, ...patientSnap.data() } as Patient;
+    const provider = {id: providerSnap.id, ...providerSnap.data()} as Provider;
+    const patient = {id: patientSnap.id, ...patientSnap.data()} as Patient;
 
     const planSnap = await db
       .collection("insurance_plans")
@@ -109,7 +134,7 @@ router.post(
         `Insurance plan ${patient.planId} not found`,
       );
     }
-    const plan = { id: planSnap.id, ...planSnap.data() } as InsurancePlan;
+    const plan = {id: planSnap.id, ...planSnap.data()} as InsurancePlan;
 
     // Fetch CPT code metadata
     const cptSnaps = await Promise.all(
@@ -120,7 +145,7 @@ router.post(
     const cptCodeData: Record<string, CptCode> = {};
     for (const snap of cptSnaps) {
       if (snap.exists) {
-        cptCodeData[snap.id] = { code: snap.id, ...snap.data() } as CptCode;
+        cptCodeData[snap.id] = {code: snap.id, ...snap.data()} as CptCode;
       }
     }
 
@@ -133,18 +158,35 @@ router.post(
       .where("submittedAt", ">=", Timestamp.fromDate(oneDayAgo))
       .get();
     const existingClaims = recentSnap.docs.map(
-      (d) => ({ id: d.id, ...d.data() }) as Claim,
+      (d) => ({id: d.id, ...d.data()}) as Claim,
     );
 
-    // Run the rules engine
+    // ── Rules engine ────────────────────────────────────────────────────────
     const engine = createDefaultRulesEngine();
-    const engineResult = await engine.evaluate(body, {
-      provider,
-      patient,
-      plan,
-      cptCodeData,
-      existingClaims,
-    });
+    let engineResult;
+    try {
+      engineResult = await engine.evaluate(body, {
+        provider,
+        patient,
+        plan,
+        cptCodeData,
+        existingClaims,
+      });
+    } catch (err) {
+      logger.error("Rules engine failure", {
+        error: err instanceof Error ? err.message : String(err),
+        stack: err instanceof Error ? err.stack : undefined,
+        providerId: body.providerId,
+        patientId: body.patientId,
+        correlationId,
+      });
+      throw new AppError(
+        500,
+        "RULES_ENGINE_ERROR",
+        "Failed to evaluate claim rules. Please try again.",
+        {providerId: body.providerId, patientId: body.patientId},
+      );
+    }
 
     let claimStatus: ClaimStatus;
     let denialReason: string | undefined;
@@ -163,18 +205,34 @@ router.post(
       claimStatus = "PATIENT_BILLED";
     }
 
-    // Calculate adjudication only for claims that will be processed
+    // ── Adjudication ────────────────────────────────────────────────────────
     let adjudication = null;
     if (claimStatus === "PATIENT_BILLED") {
-      adjudication = calculateAdjudication(
-        body.billedAmount,
-        body.cptCodes,
-        plan,
-        cptCodeData,
-      );
+      try {
+        adjudication = calculateAdjudication(
+          body.billedAmount,
+          body.cptCodes,
+          plan,
+          cptCodeData,
+        );
+      } catch (err) {
+        logger.error("Adjudication failure", {
+          error: err instanceof Error ? err.message : String(err),
+          stack: err instanceof Error ? err.stack : undefined,
+          providerId: body.providerId,
+          billedAmount: body.billedAmount,
+          correlationId,
+        });
+        throw new AppError(
+          500,
+          "ADJUDICATION_ERROR",
+          "Failed to calculate patient responsibility. Please try again.",
+          {billedAmount: body.billedAmount},
+        );
+      }
     }
 
-    // Compute provider risk score from historical + this new claim
+    // ── Risk scoring (non-fatal — defaults to 0 on failure) ─────────────────
     const allForAnalysis: ClaimForAnalysis[] = existingClaims.map((c) => ({
       id: c.id,
       providerId: c.providerId,
@@ -186,15 +244,25 @@ router.post(
     const cptStatsMap = new Map<string, CptStats>(
       Object.entries(cptCodeData).map(([code, data]) => [
         code,
-        { code, avgBilledAmount: data.avgBilledAmount },
+        {code, avgBilledAmount: data.avgBilledAmount},
       ]),
     );
-    const riskResult = computeRiskScore(
-      body.providerId,
-      allForAnalysis,
-      cptStatsMap,
-    );
+    let riskResult;
+    try {
+      riskResult = computeRiskScore(body.providerId, allForAnalysis, cptStatsMap);
+    } catch (err) {
+      logger.warn("Risk scoring failure — defaulting to score 0", {
+        error: err instanceof Error ? err.message : String(err),
+        providerId: body.providerId,
+        correlationId,
+      });
+      riskResult = {
+        score: 0,
+        signals: {velocityScore: 0, amountScore: 0, clusteringScore: 0, temporalScore: 0},
+      };
+    }
 
+    // ── Persist claim ────────────────────────────────────────────────────────
     const now = FieldValue.serverTimestamp();
     const claimDoc: Record<string, unknown> = {
       providerId: body.providerId,
@@ -219,18 +287,43 @@ router.post(
       });
     }
 
-    const claimRef = await db.collection("claims").add(claimDoc);
+    let claimRef;
+    try {
+      claimRef = await db.collection("claims").add(claimDoc);
+    } catch (err) {
+      logger.error("Failed to write claim to Firestore", {
+        error: err instanceof Error ? err.message : String(err),
+        stack: err instanceof Error ? err.stack : undefined,
+        providerId: body.providerId,
+        patientId: body.patientId,
+        correlationId,
+      });
+      throw new AppError(
+        500,
+        "CLAIM_WRITE_FAILED",
+        "Failed to persist claim. Please retry with your idempotency key.",
+      );
+    }
 
-    await db.collection("audit_log").add({
-      type: "CLAIM_SUBMITTED",
-      claimId: claimRef.id,
-      providerId: body.providerId,
-      patientId: body.patientId,
-      finalAction: engineResult.finalAction,
-      ruleResults: engineResult.ruleResults,
-      correlationId,
-      timestamp: now,
-    });
+    // ── Audit log (non-fatal) ────────────────────────────────────────────────
+    db.collection("audit_log")
+      .add({
+        type: "CLAIM_SUBMITTED",
+        claimId: claimRef.id,
+        providerId: body.providerId,
+        patientId: body.patientId,
+        finalAction: engineResult.finalAction,
+        ruleResults: engineResult.ruleResults,
+        correlationId,
+        timestamp: now,
+      })
+      .catch((err: unknown) => {
+        logger.warn("Audit log write failed — claim already persisted", {
+          claimId: claimRef.id,
+          error: err instanceof Error ? err.message : String(err),
+          correlationId,
+        });
+      });
 
     logger.info("Claim processed", {
       claimId: claimRef.id,
@@ -240,11 +333,11 @@ router.post(
     });
 
     const httpStatus =
-      claimStatus === "DENIED"
-        ? 422
-        : claimStatus === "FLAGGED"
-          ? 202
-          : 201;
+      claimStatus === "DENIED" ?
+        422 :
+        claimStatus === "FLAGGED" ?
+          202 :
+          201;
 
     res.status(httpStatus).json({
       claimId: claimRef.id,
@@ -252,9 +345,9 @@ router.post(
       riskScore: riskResult.score,
       riskSignals: riskResult.signals,
       ruleResults: engineResult.ruleResults,
-      ...(adjudication ? { adjudication } : {}),
-      ...(denialReason ? { denialReason } : {}),
-      ...(flagReason ? { flagReason } : {}),
+      ...(adjudication ? {adjudication} : {}),
+      ...(denialReason ? {denialReason} : {}),
+      ...(flagReason ? {flagReason} : {}),
       correlationId,
     });
   }),
@@ -269,7 +362,7 @@ router.get(
     if (!snap.exists) {
       throw new AppError(404, "CLAIM_NOT_FOUND", `Claim ${String(req.params["id"])} not found`);
     }
-    res.json({ claimId: snap.id, ...snap.data() });
+    res.json({claimId: snap.id, ...snap.data()});
   }),
 );
 
@@ -278,14 +371,46 @@ router.get(
 router.get(
   "/",
   asyncHandler(async (req: Request, res: Response): Promise<void> => {
-    const { providerId, patientId, status, from, to, cursor, limit } =
+    const {providerId, patientId, status, from, to, cursor, limit} =
       req.query as Record<string, string | undefined>;
 
-    const pageSize = Math.min(parseInt(limit ?? "20", 10), 100);
+    // ── Query param validation ───────────────────────────────────────────────
+    const parsedLimit = parseInt(limit ?? "20", 10);
+    if (isNaN(parsedLimit) || parsedLimit < 1 || parsedLimit > 100) {
+      throw new AppError(
+        400,
+        "VALIDATION_ERROR",
+        "limit must be an integer between 1 and 100",
+      );
+    }
+
+    if (status !== undefined && !VALID_CLAIM_STATUSES.has(status as ClaimStatus)) {
+      throw new AppError(
+        400,
+        "VALIDATION_ERROR",
+        `status must be one of: ${[...VALID_CLAIM_STATUSES].join(", ")}`,
+      );
+    }
+
+    if (from !== undefined) {
+      const d = new Date(from);
+      if (isNaN(d.getTime())) {
+        throw new AppError(400, "VALIDATION_ERROR", "from must be a valid ISO 8601 date");
+      }
+    }
+
+    if (to !== undefined) {
+      const d = new Date(to);
+      if (isNaN(d.getTime())) {
+        throw new AppError(400, "VALIDATION_ERROR", "to must be a valid ISO 8601 date");
+      }
+    }
+
+    const pageSize = parsedLimit;
     let query = db
       .collection("claims")
       .orderBy("submittedAt", "desc")
-      .limit(pageSize + 1); // fetch one extra to detect next page
+      .limit(pageSize + 1); // fetch one extra to detect the next page
 
     if (providerId) query = query.where("providerId", "==", providerId);
     if (patientId) query = query.where("patientId", "==", patientId);
@@ -319,7 +444,7 @@ router.get(
     const nextCursor = hasMore ? docs[docs.length - 1].id : null;
 
     res.json({
-      claims: docs.map((d) => ({ claimId: d.id, ...d.data() })),
+      claims: docs.map((d) => ({claimId: d.id, ...d.data()})),
       pagination: {
         pageSize,
         hasMore,
@@ -336,17 +461,28 @@ router.post(
   asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const correlationId = req.correlationId;
     const claimId = String(req.params["id"]);
-    const { amount, idempotencyKey } = req.body as {
-      amount: number;
-      idempotencyKey: string;
-    };
+    const rawPayment = req.body as Record<string, unknown>;
 
-    if (amount == null || amount <= 0) {
-      throw new AppError(400, "VALIDATION_ERROR", "amount must be positive");
+    // ── Input validation ────────────────────────────────────────────────────
+    if (rawPayment["amount"] == null) {
+      throw new AppError(400, "VALIDATION_ERROR", "amount is required");
     }
-    if (!idempotencyKey) {
-      throw new AppError(400, "VALIDATION_ERROR", "idempotencyKey is required");
+    if (typeof rawPayment["amount"] !== "number" || isNaN(rawPayment["amount"])) {
+      throw new AppError(400, "VALIDATION_ERROR", "amount must be a number");
     }
+    if (rawPayment["amount"] <= 0) {
+      throw new AppError(400, "VALIDATION_ERROR", "amount must be a positive number");
+    }
+    if (
+      !rawPayment["idempotencyKey"] ||
+      typeof rawPayment["idempotencyKey"] !== "string" ||
+      rawPayment["idempotencyKey"].trim() === ""
+    ) {
+      throw new AppError(400, "VALIDATION_ERROR", "idempotencyKey is required and must be a non-empty string");
+    }
+
+    const amount = rawPayment["amount"] as number;
+    const idempotencyKey = rawPayment["idempotencyKey"] as string;
 
     // Idempotency check
     const existingPayment = await db
@@ -356,7 +492,7 @@ router.post(
       .get();
     if (!existingPayment.empty) {
       const doc = existingPayment.docs[0];
-      res.status(200).json({ paymentId: doc.id, ...doc.data(), idempotent: true });
+      res.status(200).json({paymentId: doc.id, ...doc.data(), idempotent: true});
       return;
     }
 
@@ -365,7 +501,7 @@ router.post(
       throw new AppError(404, "CLAIM_NOT_FOUND", `Claim ${claimId} not found`);
     }
 
-    const claim = { id: claimSnap.id, ...claimSnap.data() } as Claim;
+    const claim = {id: claimSnap.id, ...claimSnap.data()} as Claim;
 
     if (claim.status !== "PATIENT_BILLED") {
       throw new AppError(
@@ -399,30 +535,73 @@ router.post(
       correlationId,
     };
 
-    const paymentRef = await db.collection("payments").add(paymentData);
+    let paymentRef;
+    try {
+      paymentRef = await db.collection("payments").add(paymentData);
+    } catch (err) {
+      logger.error("Failed to write payment to Firestore", {
+        error: err instanceof Error ? err.message : String(err),
+        stack: err instanceof Error ? err.stack : undefined,
+        claimId,
+        amount,
+        correlationId,
+      });
+      throw new AppError(
+        500,
+        "PAYMENT_WRITE_FAILED",
+        "Failed to persist payment. Please retry with your idempotency key.",
+      );
+    }
 
     // Update claim — move to PAID if fully settled
     const newAmountPaid = alreadyPaid + amount;
     const newStatus: ClaimStatus =
       newAmountPaid >= patientResponsibility - 0.01 ? "PAID" : "PATIENT_BILLED";
 
-    const claimUpdate: Record<string, unknown> = { amountPaid: newAmountPaid };
+    const claimUpdate: Record<string, unknown> = {amountPaid: newAmountPaid};
     if (newStatus === "PAID") {
       claimUpdate["status"] = "PAID";
       claimUpdate["paidAt"] = FieldValue.serverTimestamp();
     }
 
-    await db.collection("claims").doc(claimId).update(claimUpdate);
+    try {
+      await db.collection("claims").doc(claimId).update(claimUpdate);
+    } catch (err) {
+      logger.error("Failed to update claim status after payment", {
+        error: err instanceof Error ? err.message : String(err),
+        stack: err instanceof Error ? err.stack : undefined,
+        claimId,
+        paymentId: paymentRef.id,
+        newStatus,
+        correlationId,
+      });
+      throw new AppError(
+        500,
+        "CLAIM_UPDATE_FAILED",
+        "Payment was recorded but claim status could not be updated. Please contact support.",
+        {paymentId: paymentRef.id, claimId},
+      );
+    }
 
-    await db.collection("audit_log").add({
-      type: "PAYMENT_PROCESSED",
-      claimId,
-      paymentId: paymentRef.id,
-      amount,
-      overpayment: amount > remaining,
-      correlationId,
-      timestamp: FieldValue.serverTimestamp(),
-    });
+    // ── Audit log (non-fatal) ────────────────────────────────────────────────
+    db.collection("audit_log")
+      .add({
+        type: "PAYMENT_PROCESSED",
+        claimId,
+        paymentId: paymentRef.id,
+        amount,
+        overpayment: amount > remaining,
+        correlationId,
+        timestamp: FieldValue.serverTimestamp(),
+      })
+      .catch((err: unknown) => {
+        logger.warn("Audit log write failed — payment already persisted", {
+          paymentId: paymentRef.id,
+          claimId,
+          error: err instanceof Error ? err.message : String(err),
+          correlationId,
+        });
+      });
 
     logger.info("Payment processed", {
       paymentId: paymentRef.id,
@@ -467,15 +646,10 @@ router.get(
 
     res.json({
       claimId,
-      payments: snap.docs.map((d) => ({ paymentId: d.id, ...d.data() })),
+      payments: snap.docs.map((d) => ({paymentId: d.id, ...d.data()})),
     });
   }),
 );
 
 export default router;
-
-// Named export for use in app.ts
-export { router as claimsRouter };
-
-// Helper used by seed route
-export { uuidv4 };
+export {router as claimsRouter};
