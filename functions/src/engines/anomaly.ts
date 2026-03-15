@@ -226,7 +226,7 @@ function computeTemporalScore(claims: ClaimForAnalysis[]): number {
   for (let right = 0; right < sorted.length; right++) {
     while (
       sorted[right].submittedAt.getTime() -
-        sorted[left].submittedAt.getTime() >
+      sorted[left].submittedAt.getTime() >
       ONE_HOUR_MS
     ) {
       left++;
@@ -235,13 +235,13 @@ function computeTemporalScore(claims: ClaimForAnalysis[]): number {
   }
 
   const burstScore =
-    maxInWindow > BURST_THRESHOLD
-      ? clamp(
-          ((maxInWindow - BURST_THRESHOLD) / BURST_THRESHOLD) * (MAX / 2),
-          0,
-          MAX / 2,
-        )
-      : 0;
+    maxInWindow > BURST_THRESHOLD ?
+      clamp(
+        ((maxInWindow - BURST_THRESHOLD) / BURST_THRESHOLD) * (MAX / 2),
+        0,
+        MAX / 2,
+      ) :
+      0;
 
   return offHoursScore + burstScore;
 }
