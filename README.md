@@ -57,7 +57,6 @@ health-pay/
 ├── firestore.rules             # Firestore security rules
 ├── firestore.indexes.json      # Composite index definitions
 ├── firebase.json               # Hosting, Functions, and Firestore config
-└── CLAUDE.md                   # AI assistant project context
 ```
 
 ---
