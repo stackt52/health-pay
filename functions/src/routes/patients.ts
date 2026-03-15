@@ -1,7 +1,7 @@
 import {Router} from "express";
 import type {Request, Response, NextFunction} from "express";
-import {Timestamp} from "firebase-admin/firestore";
-import {db} from "../db.js";
+import * as logger from "firebase-functions/logger";
+import {supabase} from "../db.js";
 import {AppError, type Patient} from "../types.js";
 
 const router = Router();
@@ -14,42 +14,49 @@ function asyncHandler(
   };
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mapPatient(row: Record<string, any>): Patient {
+  return {
+    id: row["id"] as string,
+    name: row["name"] as string,
+    planId: row["plan_id"] as string,
+    createdAt: row["created_at"] as string,
+  };
+}
+
 // ─── POST /api/patients ───────────────────────────────────────────────────────
 
 router.post(
   "/",
   asyncHandler(async (req: Request, res: Response): Promise<void> => {
-    const {name, planId} = req.body as { name?: string; planId?: string };
+    const {name, planId} = req.body as {name?: string; planId?: string};
 
     if (!name || !planId) {
-      throw new AppError(
-        400,
-        "VALIDATION_ERROR",
-        "Missing required fields: name, planId",
-      );
+      throw new AppError(400, "VALIDATION_ERROR", "Missing required fields: name, planId");
     }
 
-    const planSnap =
-      await db.collection("insurance_plans").doc(planId).get();
-    if (!planSnap.exists) {
-      throw new AppError(
-        404,
-        "PLAN_NOT_FOUND",
-        `Insurance plan ${planId} not found`,
-      );
+    const {data: plan, error: planErr} = await supabase
+      .from("insurance_plans")
+      .select("id")
+      .eq("id", planId)
+      .single();
+
+    if (planErr || !plan) {
+      throw new AppError(404, "PLAN_NOT_FOUND", `Insurance plan ${planId} not found`);
     }
 
-    const now = Timestamp.now();
-    const patientRef = db.collection("patients").doc();
-    const patient: Patient = {
-      id: patientRef.id,
-      name,
-      planId,
-      createdAt: now,
-    };
+    const {data: row, error} = await supabase
+      .from("patients")
+      .insert({name, plan_id: planId})
+      .select()
+      .single();
 
-    await patientRef.set(patient);
-    res.status(201).json(patient);
+    if (error || !row) {
+      logger.error("Failed to create patient", {error: error?.message});
+      throw new AppError(500, "PATIENT_CREATE_FAILED", "Failed to create patient");
+    }
+
+    res.status(201).json(mapPatient(row));
   }),
 );
 
@@ -58,15 +65,20 @@ router.post(
 router.get(
   "/",
   asyncHandler(async (req: Request, res: Response): Promise<void> => {
-    const {planId} = req.query as { planId?: string };
+    const {planId} = req.query as {planId?: string};
 
-    let query: FirebaseFirestore.Query = db.collection("patients");
+    let query = supabase.from("patients").select("*");
     if (planId) {
-      query = query.where("planId", "==", planId);
+      query = query.eq("plan_id", planId);
     }
 
-    const snap = await query.get();
-    const patients = snap.docs.map((d) => ({id: d.id, ...d.data()}));
+    const {data: rows, error} = await query;
+    if (error) {
+      logger.error("Failed to list patients", {error: error.message});
+      throw new AppError(500, "PATIENTS_FETCH_FAILED", "Failed to fetch patients");
+    }
+
+    const patients = (rows ?? []).map(mapPatient);
     res.json({patients, total: patients.length});
   }),
 );
@@ -77,15 +89,17 @@ router.get(
   "/:id",
   asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const patientId = String(req.params["id"]);
-    const snap = await db.collection("patients").doc(patientId).get();
-    if (!snap.exists) {
-      throw new AppError(
-        404,
-        "PATIENT_NOT_FOUND",
-        `Patient ${patientId} not found`,
-      );
+    const {data: row, error} = await supabase
+      .from("patients")
+      .select("*")
+      .eq("id", patientId)
+      .single();
+
+    if (error || !row) {
+      throw new AppError(404, "PATIENT_NOT_FOUND", `Patient ${patientId} not found`);
     }
-    res.json({id: snap.id, ...snap.data()});
+
+    res.json(mapPatient(row));
   }),
 );
 
@@ -95,31 +109,33 @@ router.put(
   "/:id",
   asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const patientId = String(req.params["id"]);
-    const {name, planId} = req.body as { name?: string; planId?: string };
+    const {name, planId} = req.body as {name?: string; planId?: string};
 
-    const snap = await db.collection("patients").doc(patientId).get();
-    if (!snap.exists) {
-      throw new AppError(
-        404,
-        "PATIENT_NOT_FOUND",
-        `Patient ${patientId} not found`,
-      );
+    const {data: existing, error: fetchError} = await supabase
+      .from("patients")
+      .select("id")
+      .eq("id", patientId)
+      .single();
+
+    if (fetchError || !existing) {
+      throw new AppError(404, "PATIENT_NOT_FOUND", `Patient ${patientId} not found`);
     }
 
     if (planId) {
-      const planSnap = await db.collection("insurance_plans").doc(planId).get();
-      if (!planSnap.exists) {
-        throw new AppError(
-          404,
-          "PLAN_NOT_FOUND",
-          `Insurance plan ${planId} not found`,
-        );
+      const {data: plan, error: planErr} = await supabase
+        .from("insurance_plans")
+        .select("id")
+        .eq("id", planId)
+        .single();
+
+      if (planErr || !plan) {
+        throw new AppError(404, "PLAN_NOT_FOUND", `Insurance plan ${planId} not found`);
       }
     }
 
-    const updates: Partial<Pick<Patient, "name" | "planId">> = {};
-    if (name !== undefined) updates.name = name;
-    if (planId !== undefined) updates.planId = planId;
+    const updates: Record<string, unknown> = {};
+    if (name !== undefined) updates["name"] = name;
+    if (planId !== undefined) updates["plan_id"] = planId;
 
     if (Object.keys(updates).length === 0) {
       throw new AppError(
@@ -129,9 +145,19 @@ router.put(
       );
     }
 
-    await db.collection("patients").doc(patientId).update(updates);
-    const updated = await db.collection("patients").doc(patientId).get();
-    res.json({id: updated.id, ...updated.data()});
+    const {data: row, error} = await supabase
+      .from("patients")
+      .update(updates)
+      .eq("id", patientId)
+      .select()
+      .single();
+
+    if (error || !row) {
+      logger.error("Failed to update patient", {error: error?.message});
+      throw new AppError(500, "PATIENT_UPDATE_FAILED", "Failed to update patient");
+    }
+
+    res.json(mapPatient(row));
   }),
 );
 
@@ -141,15 +167,23 @@ router.delete(
   "/:id",
   asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const patientId = String(req.params["id"]);
-    const snap = await db.collection("patients").doc(patientId).get();
-    if (!snap.exists) {
-      throw new AppError(
-        404,
-        "PATIENT_NOT_FOUND",
-        `Patient ${patientId} not found`,
-      );
+
+    const {data: existing, error: fetchError} = await supabase
+      .from("patients")
+      .select("id")
+      .eq("id", patientId)
+      .single();
+
+    if (fetchError || !existing) {
+      throw new AppError(404, "PATIENT_NOT_FOUND", `Patient ${patientId} not found`);
     }
-    await db.collection("patients").doc(patientId).delete();
+
+    const {error} = await supabase.from("patients").delete().eq("id", patientId);
+    if (error) {
+      logger.error("Failed to delete patient", {error: error.message});
+      throw new AppError(500, "PATIENT_DELETE_FAILED", "Failed to delete patient");
+    }
+
     res.status(204).send();
   }),
 );

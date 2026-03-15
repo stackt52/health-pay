@@ -59,7 +59,7 @@ export class ProviderLicenseRule implements ClaimRule {
       };
     }
 
-    if (provider.licenseExpiry.toDate() < new Date()) {
+    if (new Date(provider.licenseExpiry) < new Date()) {
       return {
         ruleName: this.name,
         passed: false,
@@ -90,7 +90,7 @@ export class DuplicateClaimRule implements ClaimRule {
     const incomingCodes = new Set(claim.cptCodes);
 
     const duplicate = context.existingClaims.find((existing) => {
-      if (existing.submittedAt.toDate() < windowStart) return false;
+      if (new Date(existing.submittedAt) < windowStart) return false;
       if (existing.providerId !== claim.providerId) return false;
       if (existing.patientId !== claim.patientId) return false;
       return existing.cptCodes.some((code) => incomingCodes.has(code));

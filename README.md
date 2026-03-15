@@ -1,6 +1,6 @@
 # HealthPay — Claims Processing Engine
 
-A full-stack medical insurance claims processing platform built on Firebase. The backend exposes a REST API that validates claims against business rules, calculates patient vs. insurer responsibility, detects anomalous billing patterns, and processes patient payments. The frontend serves an interactive API reference (Swagger UI) hosted via Firebase Hosting.
+A full-stack medical insurance claims processing platform. The backend exposes a REST API that validates claims against business rules, calculates patient vs. insurer responsibility, detects anomalous billing patterns, and processes patient payments. Data is persisted in **Supabase (PostgreSQL)**. The frontend serves an interactive API reference (Swagger UI) hosted via Firebase Hosting.
 
 ---
 
@@ -14,7 +14,7 @@ A full-stack medical insurance claims processing platform built on Firebase. The
 | Language | TypeScript | 5.x |
 | Backend | Firebase Cloud Functions + Express.js | Functions 7.x |
 | Runtime | Node.js | 24 |
-| Database | Cloud Firestore | `nam5` region |
+| Database | Supabase (PostgreSQL 17) | `eu-west-1` region |
 | Hosting | Firebase Hosting | — |
 | API Docs | Swagger UI | 5.18.2 |
 
@@ -39,7 +39,7 @@ health-pay/
 │   └── src/
 │       ├── index.ts            # Cloud Function entrypoint
 │       ├── app.ts              # Express app + route mounting
-│       ├── db.ts               # Firestore client initialisation
+│       ├── db.ts               # Supabase client initialisation
 │       ├── middleware.ts        # Correlation ID, request logger, error handler
 │       ├── types.ts            # All domain types and AppError
 │       ├── routes/
@@ -62,19 +62,21 @@ health-pay/
 
 ---
 
-## Firestore Collections
+## Database Schema (Supabase / PostgreSQL)
 
-| Collection | Description |
-|-----------|-------------|
-| `providers` | Healthcare providers with license status |
+**Project:** `usckapopbgbqhibvkwqv` · **Region:** `eu-west-1`
+
+| Table | Description |
+|-------|-------------|
+| `providers` | Healthcare providers with license status and expiry |
 | `patients` | Patients linked to an insurance plan |
-| `insurance_plans` | Plan deductibles, copays, coinsurance, covered CPT codes |
+| `insurance_plans` | Plan deductibles, copays (JSONB), coinsurance, covered CPT codes |
 | `cpt_codes` | Procedure code metadata (avg amounts, incompatibility rules) |
-| `claims` | Core claim documents with full adjudication breakdown |
-| `payments` | Patient payments recorded against claims |
-| `audit_log` | Immutable event log for claims and payments |
+| `claims` | Core claim rows with full adjudication breakdown |
+| `payments` | Patient payments recorded against claims (unique idempotency key) |
+| `audit_log` | Append-only event log for claim submissions and payments |
 
-All Firestore access goes through the Firebase Admin SDK in Cloud Functions, which bypasses client-side security rules. Direct client access is denied.
+All database access goes through the Supabase service-role client in Cloud Functions. The client is initialised in `functions/src/db.ts` using `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` environment variables (set in `functions/.env`, gitignored).
 
 ---
 
@@ -95,7 +97,7 @@ All Firestore access goes through the Firebase Admin SDK in Cloud Functions, whi
 | `GET/PUT/DELETE` | `/api/patients/:id` | Get / update / delete patient |
 | `POST/GET` | `/api/insurance-plans` | Create / list insurance plans |
 | `GET/PUT/DELETE` | `/api/insurance-plans/:id` | Get / update / delete plan |
-| `POST` | `/api/seed` | Populate Firestore with reference data and sample claims |
+| `POST` | `/api/seed` | Populate Supabase with reference data and sample claims |
 | `GET` | `/api/health` | Liveness check |
 
 Full interactive documentation is available at the hosted URL (see `public/index.html`).
@@ -107,6 +109,7 @@ Full interactive documentation is available at the hosted URL (see `public/index
 - **Node.js** v24+ — [nodejs.org](https://nodejs.org)
 - **Firebase CLI** — `npm install -g firebase-tools`
 - **Firebase account** with access to the `health-pay-api` project
+- **Supabase service-role key** for project `usckapopbgbqhibvkwqv` (set in `functions/.env`)
 
 Verify your setup:
 ```bash
@@ -140,7 +143,18 @@ npm run dev
 # → http://localhost:3000
 ```
 
-### 3. Run the backend (Firebase Emulator)
+### 3. Configure Supabase credentials
+
+Create `functions/.env` (gitignored):
+
+```bash
+SUPABASE_URL=https://usckapopbgbqhibvkwqv.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=<your-service-role-key>
+```
+
+Get the service-role key from the Supabase dashboard under **Settings → API**.
+
+### 4. Run the backend (Firebase Emulator)
 
 ```bash
 cd functions
@@ -148,9 +162,9 @@ npm run serve
 # → Functions API: http://localhost:5001/health-pay-api/us-central1/api
 ```
 
-> The emulator does **not** hit production Firestore. It uses an in-memory emulator database. Run `POST /api/seed` after starting to populate it with reference data.
+> The emulator connects to the **live Supabase project** — there is no local database emulator. Run `POST /api/seed` after starting to populate it with reference data.
 
-### 4. Seed reference data
+### 5. Seed reference data
 
 ```bash
 curl -X POST http://localhost:5001/health-pay-api/us-central1/api/api/seed
@@ -213,7 +227,6 @@ Targeted deployments:
 ```bash
 firebase deploy --only hosting    # Static frontend + API docs only
 firebase deploy --only functions  # Cloud Functions only (runs lint + build first)
-firebase deploy --only firestore  # Security rules and indexes only
 ```
 
 > Deployment requires the Firebase CLI to be authenticated and the `health-pay-api` project selected (`firebase use health-pay-api`).
@@ -232,7 +245,8 @@ SUBMITTED → VALIDATED → ADJUDICATED → PATIENT_BILLED → PAID
 
 ## Environment Notes
 
-- **Firestore region:** `nam5` (US multi-region)
+- **Supabase project:** `usckapopbgbqhibvkwqv` (region: `eu-west-1`)
 - **Cloud Functions region:** `us-central1`
 - **Max instances:** 10 (cost control, set globally in `functions/src/index.ts`)
-- **Firestore rules:** All direct client access is denied; only the Admin SDK (server-side) can read/write
+- **Database access:** Service-role client only — all queries run server-side in Cloud Functions. Row-Level Security (RLS) is not required but can be enabled for defence-in-depth.
+- **Env vars:** `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` must be set in `functions/.env` for local development and as Firebase Functions environment variables for production

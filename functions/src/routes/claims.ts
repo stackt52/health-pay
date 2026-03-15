@@ -1,8 +1,7 @@
 import {Router} from "express";
 import type {Request, Response, NextFunction} from "express";
-import {FieldValue, Timestamp} from "firebase-admin/firestore";
 import * as logger from "firebase-functions/logger";
-import {db} from "../db.js";
+import {supabase} from "../db.js";
 import {
   AppError,
   type SubmitClaimRequest,
@@ -14,6 +13,9 @@ import {
   type ClaimStatus,
   type ClaimForAnalysis,
   type CptStats,
+  type Copay,
+  type LicenseStatus,
+  type CptCategory,
 } from "../types.js";
 import {createDefaultRulesEngine} from "../engines/rules.js";
 import {calculateAdjudication} from "../engines/adjudication.js";
@@ -30,14 +32,83 @@ function asyncHandler(
 }
 
 const VALID_CLAIM_STATUSES = new Set<ClaimStatus>([
-  "SUBMITTED",
-  "VALIDATED",
-  "ADJUDICATED",
-  "PATIENT_BILLED",
-  "PAID",
-  "DENIED",
-  "FLAGGED",
+  "SUBMITTED", "VALIDATED", "ADJUDICATED", "PATIENT_BILLED", "PAID", "DENIED", "FLAGGED",
 ]);
+
+// ─── Row mappers ──────────────────────────────────────────────────────────────
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mapClaim(row: Record<string, any>): Claim {
+  return {
+    id: row["id"] as string,
+    providerId: row["provider_id"] as string,
+    patientId: row["patient_id"] as string,
+    cptCodes: row["cpt_codes"] as string[],
+    billedAmount: Number(row["billed_amount"]),
+    status: row["status"] as ClaimStatus,
+    submittedAt: row["submitted_at"] as string,
+    validatedAt: row["validated_at"] ?? undefined,
+    adjudicatedAt: row["adjudicated_at"] ?? undefined,
+    patientBilledAt: row["patient_billed_at"] ?? undefined,
+    paidAt: row["paid_at"] ?? undefined,
+    denialReason: row["denial_reason"] ?? undefined,
+    flagReason: row["flag_reason"] ?? undefined,
+    insurerAmount: row["insurer_amount"] != null ? Number(row["insurer_amount"]) : undefined,
+    patientResponsibility: row["patient_responsibility"] != null ? Number(row["patient_responsibility"]) : undefined,
+    deductibleApplied: row["deductible_applied"] != null ? Number(row["deductible_applied"]) : undefined,
+    copayApplied: row["copay_applied"] != null ? Number(row["copay_applied"]) : undefined,
+    coinsuranceApplied: row["coinsurance_applied"] != null ? Number(row["coinsurance_applied"]) : undefined,
+    amountPaid: Number(row["amount_paid"] ?? 0),
+    riskScore: Number(row["risk_score"] ?? 0),
+    correlationId: row["correlation_id"] as string,
+  };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mapProvider(row: Record<string, any>): Provider {
+  return {
+    id: row["id"] as string,
+    name: row["name"] as string,
+    licenseStatus: row["license_status"] as LicenseStatus,
+    licenseExpiry: row["license_expiry"] as string,
+    createdAt: row["created_at"] as string,
+  };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mapPatient(row: Record<string, any>): Patient {
+  return {
+    id: row["id"] as string,
+    name: row["name"] as string,
+    planId: row["plan_id"] as string,
+    createdAt: row["created_at"] as string,
+  };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mapPlan(row: Record<string, any>): InsurancePlan {
+  return {
+    id: row["id"] as string,
+    name: row["name"] as string,
+    annualDeductible: Number(row["annual_deductible"]),
+    deductibleMet: Number(row["deductible_met"]),
+    copay: row["copay"] as Copay,
+    coinsuranceRate: Number(row["coinsurance_rate"]),
+    outOfPocketMax: Number(row["out_of_pocket_max"]),
+    coveredCptCodes: row["covered_cpt_codes"] as string[],
+  };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mapCptCode(row: Record<string, any>): CptCode {
+  return {
+    code: row["code"] as string,
+    description: row["description"] as string,
+    avgBilledAmount: Number(row["avg_billed_amount"]),
+    category: row["category"] as CptCategory,
+    incompatibleWith: row["incompatible_with"] as string[],
+  };
+}
 
 // ─── POST /api/claims — Submit a claim ────────────────────────────────────────
 
@@ -45,7 +116,6 @@ router.post(
   "/",
   asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const correlationId = req.correlationId;
-    // Validate from raw body before casting so runtime types are checked correctly
     const raw = req.body as Record<string, unknown>;
 
     // ── Input validation ────────────────────────────────────────────────────
@@ -56,11 +126,7 @@ router.post(
     if (raw["billedAmount"] == null) missing.push("billedAmount");
 
     if (missing.length > 0) {
-      throw new AppError(
-        400,
-        "VALIDATION_ERROR",
-        `Missing required fields: ${missing.join(", ")}`,
-      );
+      throw new AppError(400, "VALIDATION_ERROR", `Missing required fields: ${missing.join(", ")}`);
     }
 
     if (typeof raw["billedAmount"] !== "number" || isNaN(raw["billedAmount"])) {
@@ -76,90 +142,75 @@ router.post(
       (c) => typeof c !== "string" || (c as string).trim() === "",
     );
     if (invalidCptCodes.length > 0) {
-      throw new AppError(
-        400,
-        "VALIDATION_ERROR",
-        "cptCodes must be an array of non-empty strings",
-      );
+      throw new AppError(400, "VALIDATION_ERROR", "cptCodes must be an array of non-empty strings");
     }
 
     const body = raw as unknown as SubmitClaimRequest;
 
     // Idempotency — if we have seen this key before, return the existing claim
     if (body.idempotencyKey) {
-      const existing = await db
-        .collection("claims")
-        .where("correlationId", "==", body.idempotencyKey)
-        .limit(1)
-        .get();
-      if (!existing.empty) {
-        const doc = existing.docs[0];
-        res.status(200).json({claimId: doc.id, ...doc.data(), idempotent: true});
+      const {data: existing} = await supabase
+        .from("claims")
+        .select("*")
+        .eq("correlation_id", body.idempotencyKey)
+        .limit(1);
+
+      if (existing && existing.length > 0) {
+        const claim = mapClaim(existing[0]);
+        res.status(200).json({claimId: claim.id, ...claim, idempotent: true});
         return;
       }
     }
 
-    // Fetch provider, patient in parallel
-    const [providerSnap, patientSnap] = await Promise.all([
-      db.collection("providers").doc(body.providerId).get(),
-      db.collection("patients").doc(body.patientId).get(),
+    // Fetch provider and patient in parallel
+    const [providerResult, patientResult] = await Promise.all([
+      supabase.from("providers").select("*").eq("id", body.providerId).single(),
+      supabase.from("patients").select("*").eq("id", body.patientId).single(),
     ]);
 
-    if (!providerSnap.exists) {
-      throw new AppError(
-        404,
-        "PROVIDER_NOT_FOUND",
-        `Provider ${body.providerId} not found`,
-      );
+    if (providerResult.error || !providerResult.data) {
+      throw new AppError(404, "PROVIDER_NOT_FOUND", `Provider ${body.providerId} not found`);
     }
-    if (!patientSnap.exists) {
-      throw new AppError(
-        404,
-        "PATIENT_NOT_FOUND",
-        `Patient ${body.patientId} not found`,
-      );
+    if (patientResult.error || !patientResult.data) {
+      throw new AppError(404, "PATIENT_NOT_FOUND", `Patient ${body.patientId} not found`);
     }
 
-    const provider = {id: providerSnap.id, ...providerSnap.data()} as Provider;
-    const patient = {id: patientSnap.id, ...patientSnap.data()} as Patient;
+    const provider = mapProvider(providerResult.data);
+    const patient = mapPatient(patientResult.data);
 
-    const planSnap = await db
-      .collection("insurance_plans")
-      .doc(patient.planId)
-      .get();
-    if (!planSnap.exists) {
-      throw new AppError(
-        404,
-        "PLAN_NOT_FOUND",
-        `Insurance plan ${patient.planId} not found`,
-      );
+    const {data: planRow, error: planErr} = await supabase
+      .from("insurance_plans")
+      .select("*")
+      .eq("id", patient.planId)
+      .single();
+
+    if (planErr || !planRow) {
+      throw new AppError(404, "PLAN_NOT_FOUND", `Insurance plan ${patient.planId} not found`);
     }
-    const plan = {id: planSnap.id, ...planSnap.data()} as InsurancePlan;
+    const plan = mapPlan(planRow);
 
     // Fetch CPT code metadata
-    const cptSnaps = await Promise.all(
-      body.cptCodes.map((code) =>
-        db.collection("cpt_codes").doc(code).get(),
-      ),
-    );
+    const {data: cptRows} = await supabase
+      .from("cpt_codes")
+      .select("*")
+      .in("code", body.cptCodes);
+
     const cptCodeData: Record<string, CptCode> = {};
-    for (const snap of cptSnaps) {
-      if (snap.exists) {
-        cptCodeData[snap.id] = {code: snap.id, ...snap.data()} as CptCode;
-      }
+    for (const row of cptRows ?? []) {
+      const cpt = mapCptCode(row);
+      cptCodeData[cpt.code] = cpt;
     }
 
     // Fetch last-24h claims for duplicate check
     const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-    const recentSnap = await db
-      .collection("claims")
-      .where("providerId", "==", body.providerId)
-      .where("patientId", "==", body.patientId)
-      .where("submittedAt", ">=", Timestamp.fromDate(oneDayAgo))
-      .get();
-    const existingClaims = recentSnap.docs.map(
-      (d) => ({id: d.id, ...d.data()}) as Claim,
-    );
+    const {data: recentRows} = await supabase
+      .from("claims")
+      .select("*")
+      .eq("provider_id", body.providerId)
+      .eq("patient_id", body.patientId)
+      .gte("submitted_at", oneDayAgo.toISOString());
+
+    const existingClaims = (recentRows ?? []).map(mapClaim);
 
     // ── Rules engine ────────────────────────────────────────────────────────
     const engine = createDefaultRulesEngine();
@@ -192,10 +243,7 @@ router.post(
     let denialReason: string | undefined;
     let flagReason: string | undefined;
 
-    if (
-      engineResult.finalAction === "REJECT" ||
-      engineResult.finalAction === "DENY"
-    ) {
+    if (engineResult.finalAction === "REJECT" || engineResult.finalAction === "DENY") {
       claimStatus = "DENIED";
       denialReason = `${engineResult.errorCode}: ${engineResult.message}`;
     } else if (engineResult.finalAction === "FLAG") {
@@ -209,16 +257,10 @@ router.post(
     let adjudication = null;
     if (claimStatus === "PATIENT_BILLED") {
       try {
-        adjudication = calculateAdjudication(
-          body.billedAmount,
-          body.cptCodes,
-          plan,
-          cptCodeData,
-        );
+        adjudication = calculateAdjudication(body.billedAmount, body.cptCodes, plan, cptCodeData);
       } catch (err) {
         logger.error("Adjudication failure", {
           error: err instanceof Error ? err.message : String(err),
-          stack: err instanceof Error ? err.stack : undefined,
           providerId: body.providerId,
           billedAmount: body.billedAmount,
           correlationId,
@@ -232,14 +274,14 @@ router.post(
       }
     }
 
-    // ── Risk scoring (non-fatal — defaults to 0 on failure) ─────────────────
+    // ── Risk scoring (non-fatal) ─────────────────────────────────────────────
     const allForAnalysis: ClaimForAnalysis[] = existingClaims.map((c) => ({
       id: c.id,
       providerId: c.providerId,
       patientId: c.patientId,
       cptCodes: c.cptCodes,
       billedAmount: c.billedAmount,
-      submittedAt: c.submittedAt.toDate(),
+      submittedAt: new Date(c.submittedAt),
     }));
     const cptStatsMap = new Map<string, CptStats>(
       Object.entries(cptCodeData).map(([code, data]) => [
@@ -263,37 +305,42 @@ router.post(
     }
 
     // ── Persist claim ────────────────────────────────────────────────────────
-    const now = FieldValue.serverTimestamp();
+    const now = new Date().toISOString();
     const claimDoc: Record<string, unknown> = {
-      providerId: body.providerId,
-      patientId: body.patientId,
-      cptCodes: body.cptCodes,
-      billedAmount: body.billedAmount,
+      provider_id: body.providerId,
+      patient_id: body.patientId,
+      cpt_codes: body.cptCodes,
+      billed_amount: body.billedAmount,
       status: claimStatus,
-      submittedAt: now,
-      amountPaid: 0,
-      riskScore: riskResult.score,
-      correlationId: body.idempotencyKey ?? correlationId,
+      submitted_at: now,
+      amount_paid: 0,
+      risk_score: riskResult.score,
+      correlation_id: body.idempotencyKey ?? correlationId,
     };
 
-    if (denialReason) claimDoc["denialReason"] = denialReason;
-    if (flagReason) claimDoc["flagReason"] = flagReason;
+    if (denialReason) claimDoc["denial_reason"] = denialReason;
+    if (flagReason) claimDoc["flag_reason"] = flagReason;
 
     if (adjudication) {
-      Object.assign(claimDoc, adjudication, {
-        validatedAt: now,
-        adjudicatedAt: now,
-        patientBilledAt: now,
-      });
+      claimDoc["insurer_amount"] = adjudication.insurerAmount;
+      claimDoc["patient_responsibility"] = adjudication.patientResponsibility;
+      claimDoc["deductible_applied"] = adjudication.deductibleApplied;
+      claimDoc["copay_applied"] = adjudication.copayApplied;
+      claimDoc["coinsurance_applied"] = adjudication.coinsuranceApplied;
+      claimDoc["validated_at"] = now;
+      claimDoc["adjudicated_at"] = now;
+      claimDoc["patient_billed_at"] = now;
     }
 
-    let claimRef;
-    try {
-      claimRef = await db.collection("claims").add(claimDoc);
-    } catch (err) {
-      logger.error("Failed to write claim to Firestore", {
-        error: err instanceof Error ? err.message : String(err),
-        stack: err instanceof Error ? err.stack : undefined,
+    const {data: claimRow, error: claimErr} = await supabase
+      .from("claims")
+      .insert(claimDoc)
+      .select()
+      .single();
+
+    if (claimErr || !claimRow) {
+      logger.error("Failed to write claim to Supabase", {
+        error: claimErr?.message,
         providerId: body.providerId,
         patientId: body.patientId,
         correlationId,
@@ -305,42 +352,39 @@ router.post(
       );
     }
 
+    const claimId = claimRow["id"] as string;
+
     // ── Audit log (non-fatal) ────────────────────────────────────────────────
-    db.collection("audit_log")
-      .add({
+    supabase
+      .from("audit_log")
+      .insert({
         type: "CLAIM_SUBMITTED",
-        claimId: claimRef.id,
-        providerId: body.providerId,
-        patientId: body.patientId,
-        finalAction: engineResult.finalAction,
-        ruleResults: engineResult.ruleResults,
-        correlationId,
+        claim_id: claimId,
+        provider_id: body.providerId,
+        patient_id: body.patientId,
+        final_action: engineResult.finalAction,
+        rule_results: engineResult.ruleResults,
+        correlation_id: correlationId,
         timestamp: now,
       })
-      .catch((err: unknown) => {
-        logger.warn("Audit log write failed — claim already persisted", {
-          claimId: claimRef.id,
-          error: err instanceof Error ? err.message : String(err),
-          correlationId,
-        });
-      });
+      .then(
+        () => undefined,
+        (err: unknown) => {
+          logger.warn("Audit log write failed — claim already persisted", {
+            claimId,
+            error: err instanceof Error ? err.message : String(err),
+            correlationId,
+          });
+        },
+      );
 
-    logger.info("Claim processed", {
-      claimId: claimRef.id,
-      status: claimStatus,
-      riskScore: riskResult.score,
-      correlationId,
-    });
+    logger.info("Claim processed", {claimId, status: claimStatus, riskScore: riskResult.score, correlationId});
 
     const httpStatus =
-      claimStatus === "DENIED" ?
-        422 :
-        claimStatus === "FLAGGED" ?
-          202 :
-          201;
+      claimStatus === "DENIED" ? 422 : claimStatus === "FLAGGED" ? 202 : 201;
 
     res.status(httpStatus).json({
-      claimId: claimRef.id,
+      claimId,
       status: claimStatus,
       riskScore: riskResult.score,
       riskSignals: riskResult.signals,
@@ -358,11 +402,19 @@ router.post(
 router.get(
   "/:id",
   asyncHandler(async (req: Request, res: Response): Promise<void> => {
-    const snap = await db.collection("claims").doc(String(req.params["id"])).get();
-    if (!snap.exists) {
-      throw new AppError(404, "CLAIM_NOT_FOUND", `Claim ${String(req.params["id"])} not found`);
+    const claimId = String(req.params["id"]);
+    const {data: row, error} = await supabase
+      .from("claims")
+      .select("*")
+      .eq("id", claimId)
+      .single();
+
+    if (error || !row) {
+      throw new AppError(404, "CLAIM_NOT_FOUND", `Claim ${claimId} not found`);
     }
-    res.json({claimId: snap.id, ...snap.data()});
+
+    const claim = mapClaim(row);
+    res.json({claimId: claim.id, ...claim});
   }),
 );
 
@@ -374,14 +426,9 @@ router.get(
     const {providerId, patientId, status, from, to, cursor, limit} =
       req.query as Record<string, string | undefined>;
 
-    // ── Query param validation ───────────────────────────────────────────────
     const parsedLimit = parseInt(limit ?? "20", 10);
     if (isNaN(parsedLimit) || parsedLimit < 1 || parsedLimit > 100) {
-      throw new AppError(
-        400,
-        "VALIDATION_ERROR",
-        "limit must be an integer between 1 and 100",
-      );
+      throw new AppError(400, "VALIDATION_ERROR", "limit must be an integer between 1 and 100");
     }
 
     if (status !== undefined && !VALID_CLAIM_STATUSES.has(status as ClaimStatus)) {
@@ -392,64 +439,57 @@ router.get(
       );
     }
 
-    if (from !== undefined) {
-      const d = new Date(from);
-      if (isNaN(d.getTime())) {
-        throw new AppError(400, "VALIDATION_ERROR", "from must be a valid ISO 8601 date");
-      }
+    if (from !== undefined && isNaN(new Date(from).getTime())) {
+      throw new AppError(400, "VALIDATION_ERROR", "from must be a valid ISO 8601 date");
     }
 
-    if (to !== undefined) {
-      const d = new Date(to);
-      if (isNaN(d.getTime())) {
-        throw new AppError(400, "VALIDATION_ERROR", "to must be a valid ISO 8601 date");
-      }
+    if (to !== undefined && isNaN(new Date(to).getTime())) {
+      throw new AppError(400, "VALIDATION_ERROR", "to must be a valid ISO 8601 date");
     }
 
     const pageSize = parsedLimit;
-    let query = db
-      .collection("claims")
-      .orderBy("submittedAt", "desc")
-      .limit(pageSize + 1); // fetch one extra to detect the next page
 
-    if (providerId) query = query.where("providerId", "==", providerId);
-    if (patientId) query = query.where("patientId", "==", patientId);
-    if (status) query = query.where("status", "==", status);
-    if (from) {
-      query = query.where(
-        "submittedAt",
-        ">=",
-        Timestamp.fromDate(new Date(from)),
-      );
-    }
-    if (to) {
-      query = query.where(
-        "submittedAt",
-        "<=",
-        Timestamp.fromDate(new Date(to)),
-      );
-    }
+    let query = supabase
+      .from("claims")
+      .select("*")
+      .order("submitted_at", {ascending: false})
+      .limit(pageSize + 1);
 
-    // Apply cursor for pagination
+    if (providerId) query = query.eq("provider_id", providerId);
+    if (patientId) query = query.eq("patient_id", patientId);
+    if (status) query = query.eq("status", status);
+    if (from) query = query.gte("submitted_at", new Date(from).toISOString());
+    if (to) query = query.lte("submitted_at", new Date(to).toISOString());
+
+    // Cursor pagination: look up the cursor claim's submitted_at and page after it
     if (cursor) {
-      const cursorDoc = await db.collection("claims").doc(cursor).get();
-      if (cursorDoc.exists) {
-        query = query.startAfter(cursorDoc);
+      const {data: cursorRow} = await supabase
+        .from("claims")
+        .select("submitted_at")
+        .eq("id", cursor)
+        .single();
+
+      if (cursorRow) {
+        query = query.lt("submitted_at", cursorRow["submitted_at"] as string);
       }
     }
 
-    const snap = await query.get();
-    const docs = snap.docs.slice(0, pageSize);
-    const hasMore = snap.docs.length > pageSize;
-    const nextCursor = hasMore ? docs[docs.length - 1].id : null;
+    const {data: rows, error} = await query;
+    if (error) {
+      logger.error("Failed to list claims", {error: error.message});
+      throw new AppError(500, "CLAIMS_FETCH_FAILED", "Failed to fetch claims");
+    }
+
+    const docs = (rows ?? []).slice(0, pageSize);
+    const hasMore = (rows ?? []).length > pageSize;
+    const nextCursor = hasMore ? docs[docs.length - 1]["id"] as string : null;
 
     res.json({
-      claims: docs.map((d) => ({claimId: d.id, ...d.data()})),
-      pagination: {
-        pageSize,
-        hasMore,
-        nextCursor,
-      },
+      claims: docs.map((r) => {
+        const c = mapClaim(r);
+        return {claimId: c.id, ...c};
+      }),
+      pagination: {pageSize, hasMore, nextCursor},
     });
   }),
 );
@@ -485,23 +525,39 @@ router.post(
     const idempotencyKey = rawPayment["idempotencyKey"] as string;
 
     // Idempotency check
-    const existingPayment = await db
-      .collection("payments")
-      .where("idempotencyKey", "==", idempotencyKey)
-      .limit(1)
-      .get();
-    if (!existingPayment.empty) {
-      const doc = existingPayment.docs[0];
-      res.status(200).json({paymentId: doc.id, ...doc.data(), idempotent: true});
+    const {data: existingPayments} = await supabase
+      .from("payments")
+      .select("*")
+      .eq("idempotency_key", idempotencyKey)
+      .limit(1);
+
+    if (existingPayments && existingPayments.length > 0) {
+      const row = existingPayments[0];
+      res.status(200).json({
+        paymentId: row["id"],
+        claimId: row["claim_id"],
+        patientId: row["patient_id"],
+        amount: Number(row["amount"]),
+        status: row["status"],
+        idempotencyKey: row["idempotency_key"],
+        processedAt: row["processed_at"],
+        correlationId: row["correlation_id"],
+        idempotent: true,
+      });
       return;
     }
 
-    const claimSnap = await db.collection("claims").doc(claimId).get();
-    if (!claimSnap.exists) {
+    const {data: claimRow, error: claimErr} = await supabase
+      .from("claims")
+      .select("*")
+      .eq("id", claimId)
+      .single();
+
+    if (claimErr || !claimRow) {
       throw new AppError(404, "CLAIM_NOT_FOUND", `Claim ${claimId} not found`);
     }
 
-    const claim = {id: claimSnap.id, ...claimSnap.data()} as Claim;
+    const claim = mapClaim(claimRow);
 
     if (claim.status !== "PATIENT_BILLED") {
       throw new AppError(
@@ -516,32 +572,27 @@ router.post(
     const remaining = patientResponsibility - alreadyPaid;
 
     if (amount > remaining + 0.01) {
-      // Allow tiny float tolerance
-      logger.warn("Overpayment detected", {
-        claimId,
-        amount,
-        remaining,
-        correlationId,
-      });
+      logger.warn("Overpayment detected", {claimId, amount, remaining, correlationId});
     }
 
-    const paymentData = {
-      claimId,
-      patientId: claim.patientId,
-      amount,
-      status: "processed",
-      idempotencyKey,
-      processedAt: FieldValue.serverTimestamp(),
-      correlationId,
-    };
+    const now = new Date().toISOString();
+    const {data: paymentRow, error: paymentErr} = await supabase
+      .from("payments")
+      .insert({
+        claim_id: claimId,
+        patient_id: claim.patientId,
+        amount,
+        status: "processed",
+        idempotency_key: idempotencyKey,
+        processed_at: now,
+        correlation_id: correlationId,
+      })
+      .select()
+      .single();
 
-    let paymentRef;
-    try {
-      paymentRef = await db.collection("payments").add(paymentData);
-    } catch (err) {
-      logger.error("Failed to write payment to Firestore", {
-        error: err instanceof Error ? err.message : String(err),
-        stack: err instanceof Error ? err.stack : undefined,
+    if (paymentErr || !paymentRow) {
+      logger.error("Failed to write payment to Supabase", {
+        error: paymentErr?.message,
         claimId,
         amount,
         correlationId,
@@ -553,25 +604,29 @@ router.post(
       );
     }
 
+    const paymentId = paymentRow["id"] as string;
+
     // Update claim — move to PAID if fully settled
     const newAmountPaid = alreadyPaid + amount;
     const newStatus: ClaimStatus =
       newAmountPaid >= patientResponsibility - 0.01 ? "PAID" : "PATIENT_BILLED";
 
-    const claimUpdate: Record<string, unknown> = {amountPaid: newAmountPaid};
+    const claimUpdate: Record<string, unknown> = {amount_paid: newAmountPaid};
     if (newStatus === "PAID") {
       claimUpdate["status"] = "PAID";
-      claimUpdate["paidAt"] = FieldValue.serverTimestamp();
+      claimUpdate["paid_at"] = now;
     }
 
-    try {
-      await db.collection("claims").doc(claimId).update(claimUpdate);
-    } catch (err) {
+    const {error: updateErr} = await supabase
+      .from("claims")
+      .update(claimUpdate)
+      .eq("id", claimId);
+
+    if (updateErr) {
       logger.error("Failed to update claim status after payment", {
-        error: err instanceof Error ? err.message : String(err),
-        stack: err instanceof Error ? err.stack : undefined,
+        error: updateErr.message,
         claimId,
-        paymentId: paymentRef.id,
+        paymentId,
         newStatus,
         correlationId,
       });
@@ -579,39 +634,36 @@ router.post(
         500,
         "CLAIM_UPDATE_FAILED",
         "Payment was recorded but claim status could not be updated. Please contact support.",
-        {paymentId: paymentRef.id, claimId},
+        {paymentId, claimId},
       );
     }
 
     // ── Audit log (non-fatal) ────────────────────────────────────────────────
-    db.collection("audit_log")
-      .add({
+    supabase
+      .from("audit_log")
+      .insert({
         type: "PAYMENT_PROCESSED",
-        claimId,
-        paymentId: paymentRef.id,
+        claim_id: claimId,
+        payment_id: paymentId,
         amount,
         overpayment: amount > remaining,
-        correlationId,
-        timestamp: FieldValue.serverTimestamp(),
+        correlation_id: correlationId,
+        timestamp: now,
       })
-      .catch((err: unknown) => {
-        logger.warn("Audit log write failed — payment already persisted", {
-          paymentId: paymentRef.id,
-          claimId,
-          error: err instanceof Error ? err.message : String(err),
-          correlationId,
-        });
-      });
+      .then(
+        () => undefined,
+        (err: unknown) => {
+          logger.warn("Audit log write failed — payment already persisted", {
+            paymentId,
+            claimId,
+            error: err instanceof Error ? err.message : String(err),
+            correlationId,
+          });
+        },
+      );
 
-    logger.info("Payment processed", {
-      paymentId: paymentRef.id,
-      claimId,
-      amount,
-      newClaimStatus: newStatus,
-      correlationId,
-    });
+    logger.info("Payment processed", {paymentId, claimId, amount, newClaimStatus: newStatus, correlationId});
 
-    const paymentId = paymentRef.id;
     res.status(201).json({
       paymentId,
       claimId,
@@ -633,20 +685,39 @@ router.get(
   asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const claimId = String(req.params["id"]);
 
-    const claimSnap = await db.collection("claims").doc(claimId).get();
-    if (!claimSnap.exists) {
+    const {data: claimRow, error: claimErr} = await supabase
+      .from("claims")
+      .select("id")
+      .eq("id", claimId)
+      .single();
+
+    if (claimErr || !claimRow) {
       throw new AppError(404, "CLAIM_NOT_FOUND", `Claim ${claimId} not found`);
     }
 
-    const snap = await db
-      .collection("payments")
-      .where("claimId", "==", claimId)
-      .orderBy("processedAt", "desc")
-      .get();
+    const {data: rows, error} = await supabase
+      .from("payments")
+      .select("*")
+      .eq("claim_id", claimId)
+      .order("processed_at", {ascending: false});
+
+    if (error) {
+      logger.error("Failed to list payments", {error: error.message, claimId});
+      throw new AppError(500, "PAYMENTS_FETCH_FAILED", "Failed to fetch payments");
+    }
 
     res.json({
       claimId,
-      payments: snap.docs.map((d) => ({paymentId: d.id, ...d.data()})),
+      payments: (rows ?? []).map((r) => ({
+        paymentId: r["id"],
+        claimId: r["claim_id"],
+        patientId: r["patient_id"],
+        amount: Number(r["amount"]),
+        status: r["status"],
+        idempotencyKey: r["idempotency_key"],
+        processedAt: r["processed_at"],
+        correlationId: r["correlation_id"],
+      })),
     });
   }),
 );

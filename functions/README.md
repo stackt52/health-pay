@@ -11,7 +11,7 @@ This directory contains the entire backend for the HealthPay platform: a TypeScr
 | TypeScript | Language | 5.x |
 | Node.js | Runtime | 24 |
 | Express.js | HTTP framework | 4.x |
-| Firebase Admin SDK | Firestore access | 13.x |
+| Supabase JS | Database client (PostgreSQL) | 2.x |
 | Firebase Functions | Cloud Function wrapper | 7.x |
 | `uuid` | Correlation ID generation | 11.x |
 | `cors` | CORS middleware | 2.x |
@@ -26,7 +26,7 @@ functions/
 ├── src/
 │   ├── index.ts              # Cloud Function entrypoint — exports the `api` function
 │   ├── app.ts                # Express app factory — mounts all routers and middleware
-│   ├── db.ts                 # Firebase Admin SDK init, exports `db` (Firestore instance)
+│   ├── db.ts                 # Supabase client init, exports `supabase`
 │   ├── middleware.ts         # correlationMiddleware, requestLogger, errorHandler
 │   ├── types.ts              # All domain interfaces, enums, and AppError class
 │   │
@@ -86,7 +86,18 @@ npm install
 npm run build
 ```
 
-### 3. Start the emulator
+### 3. Configure Supabase credentials
+
+Create a `functions/.env` file (gitignored):
+
+```bash
+SUPABASE_URL=https://usckapopbgbqhibvkwqv.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=<your-service-role-key>
+```
+
+Get the key from the [Supabase dashboard](https://supabase.com/dashboard) under **Settings → API → service_role**.
+
+### 4. Start the emulator
 
 ```bash
 npm run serve
@@ -94,14 +105,16 @@ npm run serve
 # http://localhost:5001/health-pay-api/us-central1/api/api/<route>
 ```
 
-### 4. Seed the emulator database
+> The emulator connects to the **live Supabase project**. There is no local database emulator.
+
+### 5. Seed the database
 
 ```bash
 curl -X POST \
   http://localhost:5001/health-pay-api/us-central1/api/api/seed
 ```
 
-Creates: 6 CPT codes, 2 insurance plans, 3 providers (normal, anomalous, expired), 3 patients, ~200 sample claims.
+Creates: 6 CPT codes, 2 insurance plans, 3 providers (normal, anomalous, expired), 3 patients, ~200 sample claims. Reference data (plans, providers, patients) is upserted — safe to run multiple times.
 
 ---
 
@@ -126,7 +139,7 @@ Creates: 6 CPT codes, 2 insurance plans, 3 providers (normal, anomalous, expired
 6. Rules engine evaluation
 7. Adjudication (insurer vs patient split) — skipped for DENIED claims
 8. Risk score computation — non-fatal, defaults to 0 on engine failure
-9. Persist claim to Firestore
+9. Persist claim to Supabase
 10. Write audit log entry — non-fatal, never blocks the response
 
 ### Providers — `routes/providers.ts`
@@ -245,8 +258,8 @@ throw new AppError(statusCode, 'ERROR_CODE', 'Human-readable message', optionalD
 | Claim not in PATIENT_BILLED state | `INVALID_CLAIM_STATE` | 409 |
 | Rules engine threw unexpectedly | `RULES_ENGINE_ERROR` | 500 |
 | Adjudication calculation failed | `ADJUDICATION_ERROR` | 500 |
-| Firestore claim write failed | `CLAIM_WRITE_FAILED` | 500 |
-| Firestore payment write failed | `PAYMENT_WRITE_FAILED` | 500 |
+| Supabase claim write failed | `CLAIM_WRITE_FAILED` | 500 |
+| Supabase payment write failed | `PAYMENT_WRITE_FAILED` | 500 |
 | Claim status update failed post-payment | `CLAIM_UPDATE_FAILED` | 500 |
 
 **Non-fatal failures** (degraded gracefully, response still succeeds):
@@ -267,7 +280,7 @@ npm test
 | `anomaly.test.ts` | All 4 risk signals: edge cases, zero-data, high-risk scenarios |
 | `stateMachine.test.ts` | Valid and invalid state transitions for the claim lifecycle |
 
-Tests use `jest` with `ts-jest` for TypeScript support. No emulator is required — all Firebase dependencies are mocked.
+Tests use `jest` with `ts-jest` for TypeScript support. No emulator or database connection is required — all tests are pure unit tests against in-memory data.
 
 ---
 
@@ -288,6 +301,7 @@ Firebase automatically runs `lint` and `build` as predeploy hooks (configured in
 ## Configuration Notes
 
 - **Max instances:** 10 — set globally in `index.ts` via `setGlobalOptions`. Adjust for higher throughput if needed.
-- **Firestore Admin SDK:** bypasses Firestore security rules entirely. All data access is server-side only.
+- **Supabase client:** uses the service-role key, which bypasses Row-Level Security. All data access is server-side only — never expose the service-role key to clients.
+- **Environment variables:** `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` must be present at runtime. For production Firebase Functions, set them via `firebase functions:secrets:set` or as environment variables in the Firebase console.
 - **CORS:** enabled globally for all origins via the `cors` middleware in `app.ts`. Restrict this for production if the API should not be publicly callable from browsers.
 - **`tsconfig.json`:** targets ES2022, outputs to `lib/`, uses module resolution `node16`.

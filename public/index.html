@@ -522,11 +522,11 @@
         <h1>REST API <em>Reference</em></h1>
         <p>Submit and track medical insurance claims, calculate patient responsibility,
            detect anomalous billing patterns, and process payments — all via a single
-           HTTP interface backed by Firebase Cloud Functions and Firestore.</p>
+           HTTP interface backed by Firebase Cloud Functions and Supabase (PostgreSQL).</p>
       </div>
       <div class="hero-pills">
         <span class="pill pill-teal">Firebase Functions</span>
-        <span class="pill pill-teal">Firestore</span>
+        <span class="pill pill-teal">Supabase</span>
         <span class="pill pill-white">TypeScript</span>
         <span class="pill pill-white">REST / JSON</span>
         <span class="pill pill-white">OpenAPI 3.0</span>
@@ -555,7 +555,11 @@
       version: "1.0.0",
       description: `## Overview
 
-The HealthPay Claims Processing Engine validates medical insurance claims, calculates patient vs. insurer responsibility, detects anomalous billing patterns, and processes patient payments.
+The HealthPay Claims Processing Engine validates medical insurance claims, calculates patient vs. insurer responsibility, detects anomalous billing patterns, and processes patient payments. Data is persisted in **Supabase (PostgreSQL)**, accessed server-side via Firebase Cloud Functions.
+
+## Database
+
+All data is stored in a **Supabase PostgreSQL** database (project \`usckapopbgbqhibvkwqv\`, region \`eu-west-1\`). Tables: \`providers\`, \`patients\`, \`insurance_plans\`, \`cpt_codes\`, \`claims\`, \`payments\`, \`audit_log\`.
 
 ## Base URL
 \`\`\`
@@ -645,7 +649,7 @@ Every response includes \`x-correlation-id\` header and \`correlationId\` in err
         post: {
           tags: ["Admin"],
           summary: "Seed reference data",
-          description: `Idempotent endpoint that populates Firestore with reference data and sample claims.
+          description: `Idempotent endpoint that populates Supabase with reference data and sample claims.
 
 Creates:
 - **6 CPT codes** with average amounts and incompatibility rules
@@ -1055,7 +1059,7 @@ Run this before testing other endpoints.`,
         delete: {
           tags: ["Insurance Plans"],
           summary: "Delete an insurance plan",
-          description: "Permanently deletes an insurance plan from Firestore. Does not cascade-delete patients linked to this plan.",
+          description: "Permanently deletes an insurance plan from Supabase. Does not cascade-delete patients linked to this plan.",
           operationId: "deleteInsurancePlan",
           parameters: [
             { name: "id", in: "path", required: true, description: "Insurance plan document ID", schema: { type: "string", example: "PLAN_GOLD_001" } },
@@ -1073,7 +1077,7 @@ Run this before testing other endpoints.`,
         post: {
           tags: ["Providers"],
           summary: "Create a provider",
-          description: "Creates a new provider record in Firestore. Returns the created provider with its auto-generated ID.",
+          description: "Creates a new provider record in Supabase. Returns the created provider with its auto-generated ID.",
           operationId: "createProvider",
           requestBody: {
             required: true,
@@ -1190,7 +1194,7 @@ Run this before testing other endpoints.`,
         delete: {
           tags: ["Providers"],
           summary: "Delete a provider",
-          description: "Permanently deletes a provider document from Firestore. This does not cascade-delete associated claims.",
+          description: "Permanently deletes a provider record from Supabase. This does not cascade-delete associated claims.",
           operationId: "deleteProvider",
           parameters: [
             { name: "id", in: "path", required: true, description: "Provider document ID", schema: { type: "string", example: "PROV_NORMAL_001" } },
@@ -1323,7 +1327,7 @@ Run this before testing other endpoints.`,
         delete: {
           tags: ["Patients"],
           summary: "Delete a patient",
-          description: "Permanently deletes a patient document from Firestore. This does not cascade-delete associated claims.",
+          description: "Permanently deletes a patient record from Supabase. This does not cascade-delete associated claims.",
           operationId: "deletePatient",
           parameters: [
             { name: "id", in: "path", required: true, description: "Patient document ID", schema: { type: "string", example: "PAT_001" } },
@@ -1468,7 +1472,7 @@ Try with \`PROV_ANOMALOUS_001\` after seeding for a high score example.`,
           type: "object",
           required: ["id", "name", "annualDeductible", "deductibleMet", "copay", "coinsuranceRate", "outOfPocketMax", "coveredCptCodes"],
           properties: {
-            id:               { type: "string", description: "Firestore document ID", example: "PLAN_GOLD_001" },
+            id:               { type: "string", description: "Unique plan ID", example: "PLAN_GOLD_001" },
             name:             { type: "string", example: "Gold Plan" },
             annualDeductible: { type: "number", format: "float", description: "Annual deductible in USD", example: 500 },
             deductibleMet:    { type: "number", format: "float", description: "Amount of deductible met so far this year", example: 200 },
@@ -1519,10 +1523,10 @@ Try with \`PROV_ANOMALOUS_001\` after seeding for a high score example.`,
           type: "object",
           required: ["id", "name", "licenseStatus", "licenseExpiry", "createdAt"],
           properties: {
-            id:            { type: "string", description: "Firestore document ID", example: "PROV_NORMAL_001" },
+            id:            { type: "string", description: "Unique provider ID", example: "PROV_NORMAL_001" },
             name:          { type: "string", example: "Dr. Alice Normal" },
             licenseStatus: { $ref: "#/components/schemas/LicenseStatus" },
-            licenseExpiry: { type: "string", format: "date-time", description: "License expiry date (ISO 8601 or Firestore Timestamp)", example: "2027-12-31T00:00:00Z" },
+            licenseExpiry: { type: "string", format: "date-time", description: "License expiry date (ISO 8601)", example: "2027-12-31T00:00:00Z" },
             createdAt:     { type: "string", format: "date-time" },
           },
         },
@@ -1559,7 +1563,7 @@ Try with \`PROV_ANOMALOUS_001\` after seeding for a high score example.`,
           type: "object",
           required: ["id", "name", "planId", "createdAt"],
           properties: {
-            id:        { type: "string", description: "Firestore document ID", example: "PAT_001" },
+            id:        { type: "string", description: "Unique patient ID", example: "PAT_001" },
             name:      { type: "string", example: "John Doe" },
             planId:    { type: "string", description: "Reference to the patient's insurance plan", example: "PLAN_GOLD_001" },
             createdAt: { type: "string", format: "date-time" },
@@ -1596,7 +1600,7 @@ Try with \`PROV_ANOMALOUS_001\` after seeding for a high score example.`,
           type: "object",
           required: ["claimId", "providerId", "patientId", "cptCodes", "billedAmount", "status", "submittedAt", "correlationId"],
           properties: {
-            claimId:              { type: "string", description: "Firestore document ID", example: "abc123xyz" },
+            claimId:              { type: "string", description: "Claim ID (UUID)", example: "abc123xyz" },
             providerId:           { type: "string", example: "PROV_NORMAL_001" },
             patientId:            { type: "string", example: "PAT_001" },
             cptCodes:             { type: "array", items: { type: "string" }, example: ["99213"] },

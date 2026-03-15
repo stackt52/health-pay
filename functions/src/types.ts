@@ -1,5 +1,3 @@
-import type {Timestamp} from "firebase-admin/firestore";
-
 // ─── Domain enums ──────────────────────────────────────────────────────────────
 
 export type ClaimStatus =
@@ -21,21 +19,21 @@ export type CptCategory =
   | "imaging"
   | "therapy";
 
-// ─── Firestore document shapes ─────────────────────────────────────────────────
+// ─── Domain shapes ─────────────────────────────────────────────────────────────
 
 export interface Provider {
   id: string;
   name: string;
   licenseStatus: LicenseStatus;
-  licenseExpiry: Timestamp;
-  createdAt: Timestamp;
+  licenseExpiry: string; // ISO 8601
+  createdAt: string; // ISO 8601
 }
 
 export interface Patient {
   id: string;
   name: string;
   planId: string;
-  createdAt: Timestamp;
+  createdAt: string; // ISO 8601
 }
 
 export interface Copay {
@@ -70,11 +68,11 @@ export interface Claim {
   cptCodes: string[];
   billedAmount: number;
   status: ClaimStatus;
-  submittedAt: Timestamp;
-  validatedAt?: Timestamp;
-  adjudicatedAt?: Timestamp;
-  patientBilledAt?: Timestamp;
-  paidAt?: Timestamp;
+  submittedAt: string; // ISO 8601
+  validatedAt?: string;
+  adjudicatedAt?: string;
+  patientBilledAt?: string;
+  paidAt?: string;
   denialReason?: string;
   flagReason?: string;
   insurerAmount?: number;
@@ -94,7 +92,7 @@ export interface Payment {
   amount: number;
   status: "pending" | "processed" | "refunded";
   idempotencyKey: string;
-  processedAt: Timestamp;
+  processedAt: string; // ISO 8601
   correlationId: string;
 }
 
@@ -152,7 +150,7 @@ export interface RulesEngineResult {
 
 // ─── Anomaly detection ─────────────────────────────────────────────────────────
 
-/** Simplified claim shape used by the anomaly engine — no Firestore Timestamps */
+/** Simplified claim shape used by the anomaly engine */
 export interface ClaimForAnalysis {
   id: string;
   providerId: string;

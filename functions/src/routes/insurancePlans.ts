@@ -1,6 +1,7 @@
 import {Router} from "express";
 import type {Request, Response, NextFunction} from "express";
-import {db} from "../db.js";
+import * as logger from "firebase-functions/logger";
+import {supabase} from "../db.js";
 import {AppError, type Copay, type InsurancePlan} from "../types.js";
 
 const router = Router();
@@ -31,6 +32,20 @@ function validateCopay(copay: unknown): copay is Copay {
     typeof c["specialist"] === "number" &&
     typeof c["emergency"] === "number"
   );
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mapPlan(row: Record<string, any>): InsurancePlan {
+  return {
+    id: row["id"] as string,
+    name: row["name"] as string,
+    annualDeductible: Number(row["annual_deductible"]),
+    deductibleMet: Number(row["deductible_met"]),
+    copay: row["copay"] as Copay,
+    coinsuranceRate: Number(row["coinsurance_rate"]),
+    outOfPocketMax: Number(row["out_of_pocket_max"]),
+    coveredCptCodes: row["covered_cpt_codes"] as string[],
+  };
 }
 
 // ─── POST /api/insurance-plans ────────────────────────────────────────────────
@@ -80,20 +95,26 @@ router.post(
       );
     }
 
-    const planRef = db.collection("insurance_plans").doc();
-    const plan: InsurancePlan = {
-      id: planRef.id,
-      name,
-      annualDeductible,
-      deductibleMet,
-      copay,
-      coinsuranceRate,
-      outOfPocketMax,
-      coveredCptCodes,
-    };
+    const {data: row, error} = await supabase
+      .from("insurance_plans")
+      .insert({
+        name,
+        annual_deductible: annualDeductible,
+        deductible_met: deductibleMet,
+        copay,
+        coinsurance_rate: coinsuranceRate,
+        out_of_pocket_max: outOfPocketMax,
+        covered_cpt_codes: coveredCptCodes,
+      })
+      .select()
+      .single();
 
-    await planRef.set(plan);
-    res.status(201).json(plan);
+    if (error || !row) {
+      logger.error("Failed to create insurance plan", {error: error?.message});
+      throw new AppError(500, "PLAN_CREATE_FAILED", "Failed to create insurance plan");
+    }
+
+    res.status(201).json(mapPlan(row));
   }),
 );
 
@@ -102,8 +123,12 @@ router.post(
 router.get(
   "/",
   asyncHandler(async (_req: Request, res: Response): Promise<void> => {
-    const snap = await db.collection("insurance_plans").get();
-    const plans = snap.docs.map((d) => ({id: d.id, ...d.data()}));
+    const {data: rows, error} = await supabase.from("insurance_plans").select("*");
+    if (error) {
+      logger.error("Failed to list insurance plans", {error: error.message});
+      throw new AppError(500, "PLANS_FETCH_FAILED", "Failed to fetch insurance plans");
+    }
+    const plans = (rows ?? []).map(mapPlan);
     res.json({plans, total: plans.length});
   }),
 );
@@ -114,15 +139,17 @@ router.get(
   "/:id",
   asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const planId = String(req.params["id"]);
-    const snap = await db.collection("insurance_plans").doc(planId).get();
-    if (!snap.exists) {
-      throw new AppError(
-        404,
-        "PLAN_NOT_FOUND",
-        `Insurance plan ${planId} not found`,
-      );
+    const {data: row, error} = await supabase
+      .from("insurance_plans")
+      .select("*")
+      .eq("id", planId)
+      .single();
+
+    if (error || !row) {
+      throw new AppError(404, "PLAN_NOT_FOUND", `Insurance plan ${planId} not found`);
     }
-    res.json({id: snap.id, ...snap.data()});
+
+    res.json(mapPlan(row));
   }),
 );
 
@@ -142,13 +169,14 @@ router.put(
       coveredCptCodes,
     } = req.body as PlanBody;
 
-    const snap = await db.collection("insurance_plans").doc(planId).get();
-    if (!snap.exists) {
-      throw new AppError(
-        404,
-        "PLAN_NOT_FOUND",
-        `Insurance plan ${planId} not found`,
-      );
+    const {data: existing, error: fetchError} = await supabase
+      .from("insurance_plans")
+      .select("id")
+      .eq("id", planId)
+      .single();
+
+    if (fetchError || !existing) {
+      throw new AppError(404, "PLAN_NOT_FOUND", `Insurance plan ${planId} not found`);
     }
 
     if (copay !== undefined && !validateCopay(copay)) {
@@ -170,14 +198,14 @@ router.put(
       );
     }
 
-    const updates: Partial<InsurancePlan> = {};
-    if (name !== undefined) updates.name = name;
-    if (annualDeductible !== undefined) updates.annualDeductible = annualDeductible;
-    if (deductibleMet !== undefined) updates.deductibleMet = deductibleMet;
-    if (copay !== undefined) updates.copay = copay;
-    if (coinsuranceRate !== undefined) updates.coinsuranceRate = coinsuranceRate;
-    if (outOfPocketMax !== undefined) updates.outOfPocketMax = outOfPocketMax;
-    if (coveredCptCodes !== undefined) updates.coveredCptCodes = coveredCptCodes;
+    const updates: Record<string, unknown> = {};
+    if (name !== undefined) updates["name"] = name;
+    if (annualDeductible !== undefined) updates["annual_deductible"] = annualDeductible;
+    if (deductibleMet !== undefined) updates["deductible_met"] = deductibleMet;
+    if (copay !== undefined) updates["copay"] = copay;
+    if (coinsuranceRate !== undefined) updates["coinsurance_rate"] = coinsuranceRate;
+    if (outOfPocketMax !== undefined) updates["out_of_pocket_max"] = outOfPocketMax;
+    if (coveredCptCodes !== undefined) updates["covered_cpt_codes"] = coveredCptCodes;
 
     if (Object.keys(updates).length === 0) {
       throw new AppError(
@@ -187,9 +215,19 @@ router.put(
       );
     }
 
-    await db.collection("insurance_plans").doc(planId).update(updates);
-    const updated = await db.collection("insurance_plans").doc(planId).get();
-    res.json({id: updated.id, ...updated.data()});
+    const {data: row, error} = await supabase
+      .from("insurance_plans")
+      .update(updates)
+      .eq("id", planId)
+      .select()
+      .single();
+
+    if (error || !row) {
+      logger.error("Failed to update insurance plan", {error: error?.message});
+      throw new AppError(500, "PLAN_UPDATE_FAILED", "Failed to update insurance plan");
+    }
+
+    res.json(mapPlan(row));
   }),
 );
 
@@ -199,15 +237,23 @@ router.delete(
   "/:id",
   asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const planId = String(req.params["id"]);
-    const snap = await db.collection("insurance_plans").doc(planId).get();
-    if (!snap.exists) {
-      throw new AppError(
-        404,
-        "PLAN_NOT_FOUND",
-        `Insurance plan ${planId} not found`,
-      );
+
+    const {data: existing, error: fetchError} = await supabase
+      .from("insurance_plans")
+      .select("id")
+      .eq("id", planId)
+      .single();
+
+    if (fetchError || !existing) {
+      throw new AppError(404, "PLAN_NOT_FOUND", `Insurance plan ${planId} not found`);
     }
-    await db.collection("insurance_plans").doc(planId).delete();
+
+    const {error} = await supabase.from("insurance_plans").delete().eq("id", planId);
+    if (error) {
+      logger.error("Failed to delete insurance plan", {error: error.message});
+      throw new AppError(500, "PLAN_DELETE_FAILED", "Failed to delete insurance plan");
+    }
+
     res.status(204).send();
   }),
 );
