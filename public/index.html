@@ -559,7 +559,7 @@ The HealthPay Claims Processing Engine validates medical insurance claims, calcu
 
 ## Base URL
 \`\`\`
-https://us-central1-health-pay-api.cloudfunctions.net/api
+https://api-amskhciitq-uc.a.run.app
 \`\`\`
 Or via Firebase Hosting rewrite:
 \`\`\`
@@ -598,11 +598,19 @@ Every claim submission scores the provider on four signals (0–25 pts each):
 
 Every response includes \`x-correlation-id\` header and \`correlationId\` in error bodies for distributed tracing.`,
     },
+    servers: [
+      {
+        url: "https://api-amskhciitq-uc.a.run.app",
+        description: "Production Server",
+      },
+    ],
     tags: [
-      { name: "Claims",    description: "Submit, retrieve, list, and manage medical insurance claims" },
-      { name: "Payments",  description: "Record and track patient payments against billed claims" },
-      { name: "Providers", description: "Provider dashboard statistics and anomaly risk scoring" },
-      { name: "Admin",     description: "Seed data and health check endpoints" },
+      { name: "Claims",          description: "Submit, retrieve, list, and manage medical insurance claims" },
+      { name: "Payments",        description: "Record and track patient payments against billed claims" },
+      { name: "Providers",       description: "Create, update, delete, and retrieve providers; dashboard statistics and anomaly risk scoring" },
+      { name: "Patients",        description: "Create, update, delete, and retrieve patients" },
+      { name: "Insurance Plans", description: "Create, update, delete, and retrieve insurance plans" },
+      { name: "Admin",           description: "Seed data and health check endpoints" },
     ],
     paths: {
 
@@ -929,6 +937,405 @@ Run this before testing other endpoints.`,
         },
       },
 
+      // ── POST /api/insurance-plans ─────────────────────────────────────────────
+      "/api/insurance-plans": {
+        post: {
+          tags: ["Insurance Plans"],
+          summary: "Create an insurance plan",
+          description: "Creates a new insurance plan. The plan ID is auto-generated. Once created, patients can be linked to this plan and CPT coverage rules will be enforced during claim submission.",
+          operationId: "createInsurancePlan",
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/CreateInsurancePlanRequest" },
+                example: {
+                  name: "Silver Plan 2026",
+                  annualDeductible: 1500,
+                  deductibleMet: 0,
+                  copay: { officeVisit: 30, specialist: 60, emergency: 150 },
+                  coinsuranceRate: 0.2,
+                  outOfPocketMax: 5000,
+                  coveredCptCodes: ["99213", "99214", "99283"],
+                },
+              },
+            },
+          },
+          responses: {
+            201: {
+              description: "Insurance plan created",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/InsurancePlan" },
+                },
+              },
+            },
+            400: { $ref: "#/components/responses/ValidationError" },
+            500: { $ref: "#/components/responses/InternalError" },
+          },
+        },
+
+        get: {
+          tags: ["Insurance Plans"],
+          summary: "List insurance plans",
+          description: "Returns all insurance plans.",
+          operationId: "listInsurancePlans",
+          responses: {
+            200: {
+              description: "List of insurance plans",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/InsurancePlanListResponse" },
+                },
+              },
+            },
+            500: { $ref: "#/components/responses/InternalError" },
+          },
+        },
+      },
+
+      // ── /api/insurance-plans/{id} ─────────────────────────────────────────────
+      "/api/insurance-plans/{id}": {
+        get: {
+          tags: ["Insurance Plans"],
+          summary: "Get insurance plan by ID",
+          description: "Retrieves a single insurance plan document by ID.",
+          operationId: "getInsurancePlan",
+          parameters: [
+            { name: "id", in: "path", required: true, description: "Insurance plan document ID", schema: { type: "string", example: "PLAN_GOLD_001" } },
+          ],
+          responses: {
+            200: {
+              description: "Insurance plan found",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/InsurancePlan" },
+                },
+              },
+            },
+            404: { $ref: "#/components/responses/NotFound" },
+            500: { $ref: "#/components/responses/InternalError" },
+          },
+        },
+
+        put: {
+          tags: ["Insurance Plans"],
+          summary: "Update an insurance plan",
+          description: `Updates one or more fields on an existing insurance plan. Only supply the fields you want to change.
+
+**Note:** Updating \`deductibleMet\` directly is supported for manual adjustments (e.g. mid-year corrections). Under normal operation, deductibles are tracked automatically during claim adjudication.`,
+          operationId: "updateInsurancePlan",
+          parameters: [
+            { name: "id", in: "path", required: true, description: "Insurance plan document ID", schema: { type: "string", example: "PLAN_GOLD_001" } },
+          ],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/UpdateInsurancePlanRequest" },
+                example: { deductibleMet: 750, coinsuranceRate: 0.15 },
+              },
+            },
+          },
+          responses: {
+            200: {
+              description: "Insurance plan updated",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/InsurancePlan" },
+                },
+              },
+            },
+            400: { $ref: "#/components/responses/ValidationError" },
+            404: { $ref: "#/components/responses/NotFound" },
+            500: { $ref: "#/components/responses/InternalError" },
+          },
+        },
+
+        delete: {
+          tags: ["Insurance Plans"],
+          summary: "Delete an insurance plan",
+          description: "Permanently deletes an insurance plan from Firestore. Does not cascade-delete patients linked to this plan.",
+          operationId: "deleteInsurancePlan",
+          parameters: [
+            { name: "id", in: "path", required: true, description: "Insurance plan document ID", schema: { type: "string", example: "PLAN_GOLD_001" } },
+          ],
+          responses: {
+            204: { description: "Insurance plan deleted — no content" },
+            404: { $ref: "#/components/responses/NotFound" },
+            500: { $ref: "#/components/responses/InternalError" },
+          },
+        },
+      },
+
+      // ── POST /api/providers ───────────────────────────────────────────────────
+      "/api/providers": {
+        post: {
+          tags: ["Providers"],
+          summary: "Create a provider",
+          description: "Creates a new provider record in Firestore. Returns the created provider with its auto-generated ID.",
+          operationId: "createProvider",
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/CreateProviderRequest" },
+                example: {
+                  name: "Dr. Jane Smith",
+                  licenseStatus: "active",
+                  licenseExpiry: "2028-06-30T00:00:00Z",
+                },
+              },
+            },
+          },
+          responses: {
+            201: {
+              description: "Provider created",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/Provider" },
+                },
+              },
+            },
+            400: { $ref: "#/components/responses/ValidationError" },
+            404: { $ref: "#/components/responses/NotFound" },
+            500: { $ref: "#/components/responses/InternalError" },
+          },
+        },
+
+        get: {
+          tags: ["Providers"],
+          summary: "List providers",
+          description: "Returns all providers, optionally filtered by license status.",
+          operationId: "listProviders",
+          parameters: [
+            {
+              name: "licenseStatus",
+              in: "query",
+              description: "Filter by license status",
+              schema: { $ref: "#/components/schemas/LicenseStatus" },
+            },
+          ],
+          responses: {
+            200: {
+              description: "List of providers",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ProviderListResponse" },
+                },
+              },
+            },
+            400: { $ref: "#/components/responses/ValidationError" },
+            500: { $ref: "#/components/responses/InternalError" },
+          },
+        },
+      },
+
+      // ── /api/providers/{id} ───────────────────────────────────────────────────
+      "/api/providers/{id}": {
+        get: {
+          tags: ["Providers"],
+          summary: "Get provider by ID",
+          description: "Retrieves a single provider document by ID.",
+          operationId: "getProvider",
+          parameters: [
+            { name: "id", in: "path", required: true, description: "Provider document ID", schema: { type: "string", example: "PROV_NORMAL_001" } },
+          ],
+          responses: {
+            200: {
+              description: "Provider found",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/Provider" },
+                },
+              },
+            },
+            404: { $ref: "#/components/responses/NotFound" },
+            500: { $ref: "#/components/responses/InternalError" },
+          },
+        },
+
+        put: {
+          tags: ["Providers"],
+          summary: "Update a provider",
+          description: "Updates one or more fields on an existing provider. Only supply the fields you want to change.",
+          operationId: "updateProvider",
+          parameters: [
+            { name: "id", in: "path", required: true, description: "Provider document ID", schema: { type: "string", example: "PROV_NORMAL_001" } },
+          ],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/UpdateProviderRequest" },
+                example: { licenseStatus: "suspended" },
+              },
+            },
+          },
+          responses: {
+            200: {
+              description: "Provider updated",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/Provider" },
+                },
+              },
+            },
+            400: { $ref: "#/components/responses/ValidationError" },
+            404: { $ref: "#/components/responses/NotFound" },
+            500: { $ref: "#/components/responses/InternalError" },
+          },
+        },
+
+        delete: {
+          tags: ["Providers"],
+          summary: "Delete a provider",
+          description: "Permanently deletes a provider document from Firestore. This does not cascade-delete associated claims.",
+          operationId: "deleteProvider",
+          parameters: [
+            { name: "id", in: "path", required: true, description: "Provider document ID", schema: { type: "string", example: "PROV_NORMAL_001" } },
+          ],
+          responses: {
+            204: { description: "Provider deleted — no content" },
+            404: { $ref: "#/components/responses/NotFound" },
+            500: { $ref: "#/components/responses/InternalError" },
+          },
+        },
+      },
+
+      // ── POST /api/patients ────────────────────────────────────────────────────
+      "/api/patients": {
+        post: {
+          tags: ["Patients"],
+          summary: "Create a patient",
+          description: "Creates a new patient record linked to an insurance plan. Returns the created patient with its auto-generated ID.",
+          operationId: "createPatient",
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/CreatePatientRequest" },
+                example: {
+                  name: "Alice Johnson",
+                  planId: "PLAN_GOLD_001",
+                },
+              },
+            },
+          },
+          responses: {
+            201: {
+              description: "Patient created",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/Patient" },
+                },
+              },
+            },
+            400: { $ref: "#/components/responses/ValidationError" },
+            404: { $ref: "#/components/responses/NotFound" },
+            500: { $ref: "#/components/responses/InternalError" },
+          },
+        },
+
+        get: {
+          tags: ["Patients"],
+          summary: "List patients",
+          description: "Returns all patients, optionally filtered by insurance plan.",
+          operationId: "listPatients",
+          parameters: [
+            {
+              name: "planId",
+              in: "query",
+              description: "Filter by insurance plan ID",
+              schema: { type: "string", example: "PLAN_GOLD_001" },
+            },
+          ],
+          responses: {
+            200: {
+              description: "List of patients",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/PatientListResponse" },
+                },
+              },
+            },
+            500: { $ref: "#/components/responses/InternalError" },
+          },
+        },
+      },
+
+      // ── /api/patients/{id} ────────────────────────────────────────────────────
+      "/api/patients/{id}": {
+        get: {
+          tags: ["Patients"],
+          summary: "Get patient by ID",
+          description: "Retrieves a single patient document by ID.",
+          operationId: "getPatient",
+          parameters: [
+            { name: "id", in: "path", required: true, description: "Patient document ID", schema: { type: "string", example: "PAT_001" } },
+          ],
+          responses: {
+            200: {
+              description: "Patient found",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/Patient" },
+                },
+              },
+            },
+            404: { $ref: "#/components/responses/NotFound" },
+            500: { $ref: "#/components/responses/InternalError" },
+          },
+        },
+
+        put: {
+          tags: ["Patients"],
+          summary: "Update a patient",
+          description: "Updates one or more fields on an existing patient. Only supply the fields you want to change. Providing a `planId` validates that the referenced plan exists.",
+          operationId: "updatePatient",
+          parameters: [
+            { name: "id", in: "path", required: true, description: "Patient document ID", schema: { type: "string", example: "PAT_001" } },
+          ],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/UpdatePatientRequest" },
+                example: { planId: "PLAN_BRONZE_001" },
+              },
+            },
+          },
+          responses: {
+            200: {
+              description: "Patient updated",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/Patient" },
+                },
+              },
+            },
+            400: { $ref: "#/components/responses/ValidationError" },
+            404: { $ref: "#/components/responses/NotFound" },
+            500: { $ref: "#/components/responses/InternalError" },
+          },
+        },
+
+        delete: {
+          tags: ["Patients"],
+          summary: "Delete a patient",
+          description: "Permanently deletes a patient document from Firestore. This does not cascade-delete associated claims.",
+          operationId: "deletePatient",
+          parameters: [
+            { name: "id", in: "path", required: true, description: "Patient document ID", schema: { type: "string", example: "PAT_001" } },
+          ],
+          responses: {
+            204: { description: "Patient deleted — no content" },
+            404: { $ref: "#/components/responses/NotFound" },
+            500: { $ref: "#/components/responses/InternalError" },
+          },
+        },
+      },
+
       // ── /api/providers/{id}/dashboard ─────────────────────────────────────────
       "/api/providers/{id}/dashboard": {
         get: {
@@ -1018,6 +1425,13 @@ Try with \`PROV_ANOMALOUS_001\` after seeding for a high score example.`,
       schemas: {
 
         // ── Enums ───────────────────────────────────────────────────────────────
+        LicenseStatus: {
+          type: "string",
+          enum: ["active", "expired", "suspended"],
+          description: "Provider license status",
+          example: "active",
+        },
+
         ClaimStatus: {
           type: "string",
           enum: [
@@ -1040,6 +1454,144 @@ Try with \`PROV_ANOMALOUS_001\` after seeding for a high score example.`,
         },
 
         // ── Core domain ─────────────────────────────────────────────────────────
+        Copay: {
+          type: "object",
+          required: ["officeVisit", "specialist", "emergency"],
+          properties: {
+            officeVisit: { type: "number", format: "float", description: "Copay for office visits", example: 30 },
+            specialist:  { type: "number", format: "float", description: "Copay for specialist visits", example: 60 },
+            emergency:   { type: "number", format: "float", description: "Copay for emergency department visits", example: 150 },
+          },
+        },
+
+        InsurancePlan: {
+          type: "object",
+          required: ["id", "name", "annualDeductible", "deductibleMet", "copay", "coinsuranceRate", "outOfPocketMax", "coveredCptCodes"],
+          properties: {
+            id:               { type: "string", description: "Firestore document ID", example: "PLAN_GOLD_001" },
+            name:             { type: "string", example: "Gold Plan" },
+            annualDeductible: { type: "number", format: "float", description: "Annual deductible in USD", example: 500 },
+            deductibleMet:    { type: "number", format: "float", description: "Amount of deductible met so far this year", example: 200 },
+            copay:            { $ref: "#/components/schemas/Copay" },
+            coinsuranceRate:  { type: "number", format: "float", description: "Patient coinsurance share (0–1), applied after deductible", example: 0.1 },
+            outOfPocketMax:   { type: "number", format: "float", description: "Annual out-of-pocket maximum in USD", example: 3000 },
+            coveredCptCodes:  { type: "array", items: { type: "string" }, description: "CPT codes covered by this plan", example: ["99213", "99214", "99283"] },
+          },
+        },
+
+        CreateInsurancePlanRequest: {
+          type: "object",
+          required: ["name", "annualDeductible", "deductibleMet", "copay", "coinsuranceRate", "outOfPocketMax", "coveredCptCodes"],
+          properties: {
+            name:             { type: "string", example: "Silver Plan 2026" },
+            annualDeductible: { type: "number", format: "float", minimum: 0, example: 1500 },
+            deductibleMet:    { type: "number", format: "float", minimum: 0, description: "Typically 0 for new plans", example: 0 },
+            copay:            { $ref: "#/components/schemas/Copay" },
+            coinsuranceRate:  { type: "number", format: "float", minimum: 0, maximum: 1, description: "Patient coinsurance share (0–1)", example: 0.2 },
+            outOfPocketMax:   { type: "number", format: "float", minimum: 0, example: 5000 },
+            coveredCptCodes:  { type: "array", items: { type: "string" }, minItems: 1, example: ["99213", "99214", "99283"] },
+          },
+        },
+
+        UpdateInsurancePlanRequest: {
+          type: "object",
+          description: "All fields are optional. At least one must be supplied.",
+          properties: {
+            name:             { type: "string", example: "Silver Plan 2026 (updated)" },
+            annualDeductible: { type: "number", format: "float", minimum: 0, example: 2000 },
+            deductibleMet:    { type: "number", format: "float", minimum: 0, example: 750 },
+            copay:            { $ref: "#/components/schemas/Copay" },
+            coinsuranceRate:  { type: "number", format: "float", minimum: 0, maximum: 1, example: 0.15 },
+            outOfPocketMax:   { type: "number", format: "float", minimum: 0, example: 6000 },
+            coveredCptCodes:  { type: "array", items: { type: "string" }, minItems: 1, example: ["99213", "99214"] },
+          },
+        },
+
+        InsurancePlanListResponse: {
+          type: "object",
+          properties: {
+            plans: { type: "array", items: { $ref: "#/components/schemas/InsurancePlan" } },
+            total: { type: "integer", description: "Total number of plans returned", example: 2 },
+          },
+        },
+
+        Provider: {
+          type: "object",
+          required: ["id", "name", "licenseStatus", "licenseExpiry", "createdAt"],
+          properties: {
+            id:            { type: "string", description: "Firestore document ID", example: "PROV_NORMAL_001" },
+            name:          { type: "string", example: "Dr. Alice Normal" },
+            licenseStatus: { $ref: "#/components/schemas/LicenseStatus" },
+            licenseExpiry: { type: "string", format: "date-time", description: "License expiry date (ISO 8601 or Firestore Timestamp)", example: "2027-12-31T00:00:00Z" },
+            createdAt:     { type: "string", format: "date-time" },
+          },
+        },
+
+        CreateProviderRequest: {
+          type: "object",
+          required: ["name", "licenseStatus", "licenseExpiry"],
+          properties: {
+            name:          { type: "string", description: "Full name of the provider", example: "Dr. Jane Smith" },
+            licenseStatus: { $ref: "#/components/schemas/LicenseStatus" },
+            licenseExpiry: { type: "string", format: "date-time", description: "License expiry date (ISO 8601)", example: "2028-06-30T00:00:00Z" },
+          },
+        },
+
+        UpdateProviderRequest: {
+          type: "object",
+          description: "All fields are optional. At least one must be supplied.",
+          properties: {
+            name:          { type: "string", example: "Dr. Jane Smith" },
+            licenseStatus: { $ref: "#/components/schemas/LicenseStatus" },
+            licenseExpiry: { type: "string", format: "date-time", example: "2029-01-01T00:00:00Z" },
+          },
+        },
+
+        ProviderListResponse: {
+          type: "object",
+          properties: {
+            providers: { type: "array", items: { $ref: "#/components/schemas/Provider" } },
+            total:     { type: "integer", description: "Total number of providers returned", example: 3 },
+          },
+        },
+
+        Patient: {
+          type: "object",
+          required: ["id", "name", "planId", "createdAt"],
+          properties: {
+            id:        { type: "string", description: "Firestore document ID", example: "PAT_001" },
+            name:      { type: "string", example: "John Doe" },
+            planId:    { type: "string", description: "Reference to the patient's insurance plan", example: "PLAN_GOLD_001" },
+            createdAt: { type: "string", format: "date-time" },
+          },
+        },
+
+        CreatePatientRequest: {
+          type: "object",
+          required: ["name", "planId"],
+          properties: {
+            name:   { type: "string", description: "Full name of the patient", example: "Alice Johnson" },
+            planId: { type: "string", description: "ID of the patient's insurance plan (must exist)", example: "PLAN_GOLD_001" },
+          },
+        },
+
+        UpdatePatientRequest: {
+          type: "object",
+          description: "All fields are optional. At least one must be supplied.",
+          properties: {
+            name:   { type: "string", example: "Alice Johnson" },
+            planId: { type: "string", description: "ID of the new insurance plan (must exist)", example: "PLAN_BRONZE_001" },
+          },
+        },
+
+        PatientListResponse: {
+          type: "object",
+          properties: {
+            patients: { type: "array", items: { $ref: "#/components/schemas/Patient" } },
+            total:    { type: "integer", description: "Total number of patients returned", example: 3 },
+          },
+        },
+
         Claim: {
           type: "object",
           required: ["claimId", "providerId", "patientId", "cptCodes", "billedAmount", "status", "submittedAt", "correlationId"],
