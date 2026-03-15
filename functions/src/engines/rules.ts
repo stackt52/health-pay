@@ -4,8 +4,7 @@ import type {
   RuleResult,
   RulesEngineResult,
   AdjudicationResult,
-} from "../types.js";
-import { type RuleAction } from "../types.js";
+  RuleAction} from "../types.js";
 
 /**
  * Rules Engine — Chain of Responsibility + Strategy Pattern
@@ -24,6 +23,7 @@ import { type RuleAction } from "../types.js";
 
 export interface ClaimRule {
   readonly name: string;
+
   evaluate(
     claim: SubmitClaimRequest,
     context: RuleContext,
@@ -44,7 +44,7 @@ export class ProviderLicenseRule implements ClaimRule {
     _claim: SubmitClaimRequest,
     context: RuleContext,
   ): Promise<RuleResult> {
-    const { provider } = context;
+    const {provider} = context;
 
     if (
       provider.licenseStatus === "expired" ||
@@ -69,7 +69,7 @@ export class ProviderLicenseRule implements ClaimRule {
       };
     }
 
-    return { ruleName: this.name, passed: true, action: "CONTINUE" };
+    return {ruleName: this.name, passed: true, action: "CONTINUE"};
   }
 }
 
@@ -106,7 +106,7 @@ export class DuplicateClaimRule implements ClaimRule {
       };
     }
 
-    return { ruleName: this.name, passed: true, action: "CONTINUE" };
+    return {ruleName: this.name, passed: true, action: "CONTINUE"};
   }
 }
 
@@ -135,7 +135,7 @@ export class PlanCoverageRule implements ClaimRule {
       };
     }
 
-    return { ruleName: this.name, passed: true, action: "CONTINUE" };
+    return {ruleName: this.name, passed: true, action: "CONTINUE"};
   }
 }
 
@@ -148,7 +148,8 @@ export class PlanCoverageRule implements ClaimRule {
 export class AmountCeilingRule implements ClaimRule {
   readonly name = "AmountCeilingRule";
 
-  constructor(private readonly ceilingMultiplier = 3) {}
+  constructor(private readonly ceilingMultiplier = 3) {
+  }
 
   async evaluate(
     claim: SubmitClaimRequest,
@@ -170,7 +171,7 @@ export class AmountCeilingRule implements ClaimRule {
       }
     }
 
-    return { ruleName: this.name, passed: true, action: "CONTINUE" };
+    return {ruleName: this.name, passed: true, action: "CONTINUE"};
   }
 }
 
@@ -190,7 +191,7 @@ export class DeductibleCheckRule implements ClaimRule {
     const remaining = context.plan.annualDeductible - context.plan.deductibleMet;
 
     if (remaining <= 0) {
-      return { ruleName: this.name, passed: true, action: "CONTINUE" };
+      return {ruleName: this.name, passed: true, action: "CONTINUE"};
     }
 
     return {
@@ -205,7 +206,8 @@ export class DeductibleCheckRule implements ClaimRule {
 // ─── Rules engine (chain of responsibility) ────────────────────────────────────
 
 export class RulesEngine {
-  constructor(private readonly rules: ClaimRule[]) {}
+  constructor(private readonly rules: ClaimRule[]) {
+  }
 
   async evaluate(
     claim: SubmitClaimRequest,
@@ -242,7 +244,7 @@ export class RulesEngine {
       }
     }
 
-    return { ruleResults, finalAction, adjustments, errorCode, message };
+    return {ruleResults, finalAction, adjustments, errorCode, message};
   }
 }
 
