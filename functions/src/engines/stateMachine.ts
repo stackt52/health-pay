@@ -1,5 +1,5 @@
-import type { ClaimStatus } from "../types.js";
-import { AppError } from "../types.js";
+import type {ClaimStatus} from "../types.js";
+import {AppError} from "../types.js";
 
 /**
  * Explicit state transition table for the claims lifecycle.
@@ -32,7 +32,7 @@ export function assertTransition(from: ClaimStatus, to: ClaimStatus): void {
       409,
       "INVALID_STATE_TRANSITION",
       `Cannot transition claim from ${from} to ${to}`,
-      { from, to, validTransitions: getValidTransitions(from) },
+      {from, to, validTransitions: getValidTransitions(from)},
     );
   }
 }
