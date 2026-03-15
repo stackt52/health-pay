@@ -1,0 +1,1328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>HealthPay API — Claims Processing Engine</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600&family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,700;1,9..144,300&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5.18.2/swagger-ui.css" />
+
+  <style>
+    :root {
+      --navy:        #0D1B2A;
+      --navy-mid:    #142233;
+      --navy-light:  #1E3347;
+      --teal:        #2DD4BF;
+      --teal-dim:    #1aa896;
+      --teal-glow:   rgba(45,212,191,0.15);
+      --white:       #FFFFFF;
+      --off-white:   #F7F9FB;
+      --text-muted:  #8BA0B4;
+      --border:      rgba(45,212,191,0.18);
+      --font-sans:   'DM Sans', sans-serif;
+      --font-mono:   'DM Mono', monospace;
+      --font-display:'Fraunces', serif;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: var(--font-sans);
+      background: var(--off-white);
+      color: #1a2e40;
+      min-height: 100vh;
+    }
+
+    /* ── HEADER ────────────────────────────────────────────────────────────── */
+    .site-header {
+      background: var(--navy);
+      padding: 0;
+      position: sticky;
+      top: 0;
+      z-index: 1000;
+      border-bottom: 1px solid var(--border);
+      overflow: hidden;
+    }
+
+    .header-inner {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 0 2rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 72px;
+      position: relative;
+    }
+
+    /* Subtle grid texture on header */
+    .site-header::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background-image:
+        linear-gradient(var(--border) 1px, transparent 1px),
+        linear-gradient(90deg, var(--border) 1px, transparent 1px);
+      background-size: 40px 40px;
+      opacity: 0.3;
+      pointer-events: none;
+    }
+
+    /* Teal glow accent line at top */
+    .site-header::after {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 2px;
+      background: linear-gradient(90deg, transparent, var(--teal), var(--teal-dim), transparent);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      text-decoration: none;
+      position: relative;
+      z-index: 1;
+    }
+
+    .brand-icon {
+      width: 38px;
+      height: 38px;
+      background: var(--teal);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      box-shadow: 0 0 20px rgba(45,212,191,0.35);
+    }
+
+    .brand-icon svg {
+      width: 22px;
+      height: 22px;
+      fill: var(--navy);
+    }
+
+    .brand-text {
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+    }
+
+    .brand-name {
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 1.35rem;
+      color: var(--white);
+      letter-spacing: -0.01em;
+      line-height: 1;
+    }
+
+    .brand-tagline {
+      font-family: var(--font-mono);
+      font-size: 0.6rem;
+      color: var(--teal);
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      line-height: 1;
+      opacity: 0.85;
+    }
+
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      position: relative;
+      z-index: 1;
+    }
+
+    .version-badge {
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      font-weight: 500;
+      color: var(--teal);
+      background: rgba(45,212,191,0.1);
+      border: 1px solid rgba(45,212,191,0.3);
+      padding: 4px 10px;
+      border-radius: 20px;
+      letter-spacing: 0.05em;
+    }
+
+    .status-dot {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-family: var(--font-mono);
+      font-size: 0.65rem;
+      color: var(--text-muted);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    .status-dot::before {
+      content: '';
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #22c55e;
+      box-shadow: 0 0 8px #22c55e;
+      animation: pulse-green 2s infinite;
+    }
+
+    @keyframes pulse-green {
+      0%, 100% { opacity: 1; box-shadow: 0 0 8px #22c55e; }
+      50%       { opacity: 0.6; box-shadow: 0 0 3px #22c55e; }
+    }
+
+    /* ── HERO STRIP ─────────────────────────────────────────────────────────── */
+    .hero {
+      background: var(--navy-mid);
+      border-bottom: 1px solid var(--border);
+      padding: 2.5rem 2rem;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .hero::before {
+      content: '';
+      position: absolute;
+      top: -60px; right: -60px;
+      width: 300px; height: 300px;
+      background: radial-gradient(circle, rgba(45,212,191,0.08) 0%, transparent 70%);
+      pointer-events: none;
+    }
+
+    .hero-inner {
+      max-width: 1400px;
+      margin: 0 auto;
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 2rem;
+      flex-wrap: wrap;
+    }
+
+    .hero-copy h1 {
+      font-family: var(--font-display);
+      font-weight: 300;
+      font-size: clamp(1.6rem, 3vw, 2.2rem);
+      color: var(--white);
+      line-height: 1.2;
+      margin-bottom: 0.6rem;
+    }
+
+    .hero-copy h1 em {
+      font-style: italic;
+      color: var(--teal);
+    }
+
+    .hero-copy p {
+      font-size: 0.875rem;
+      color: var(--text-muted);
+      max-width: 560px;
+      line-height: 1.6;
+      font-weight: 300;
+    }
+
+    .hero-pills {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      align-items: center;
+    }
+
+    .pill {
+      font-family: var(--font-mono);
+      font-size: 0.65rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      padding: 5px 12px;
+      border-radius: 4px;
+      border: 1px solid;
+    }
+
+    .pill-teal  { color: var(--teal); border-color: rgba(45,212,191,0.3); background: rgba(45,212,191,0.07); }
+    .pill-white { color: #94a3b8;    border-color: rgba(148,163,184,0.25); background: rgba(148,163,184,0.06); }
+
+    /* ── SWAGGER WRAPPER ────────────────────────────────────────────────────── */
+    .swagger-wrap {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 2rem;
+    }
+
+    #swagger-ui {
+      background: var(--white);
+      border-radius: 10px;
+      overflow: hidden;
+      box-shadow: 0 4px 40px rgba(13,27,42,0.12);
+      border: 1px solid #e2e8f0;
+    }
+
+    /* ── SWAGGER UI OVERRIDES ───────────────────────────────────────────────── */
+    .swagger-ui .topbar { display: none !important; }
+
+    .swagger-ui .info {
+      margin: 2rem 0 1.5rem !important;
+      padding: 0 20px !important;
+    }
+
+    .swagger-ui .info .title {
+      font-family: var(--font-display) !important;
+      font-size: 1.8rem !important;
+      font-weight: 700 !important;
+      color: var(--navy) !important;
+    }
+
+    .swagger-ui .info .description p {
+      font-family: var(--font-sans) !important;
+      font-size: 0.9rem !important;
+      color: #4a6070 !important;
+      line-height: 1.65 !important;
+    }
+
+    .swagger-ui .scheme-container {
+      background: #f8fafc !important;
+      border-bottom: 1px solid #e2e8f0 !important;
+      padding: 12px 20px !important;
+      box-shadow: none !important;
+    }
+
+    /* Tag sections */
+    .swagger-ui .opblock-tag {
+      font-family: var(--font-sans) !important;
+      font-size: 1rem !important;
+      font-weight: 600 !important;
+      color: var(--navy) !important;
+      border-bottom: 2px solid var(--teal) !important;
+      padding-bottom: 8px !important;
+    }
+
+    .swagger-ui .opblock-tag:hover { background: transparent !important; }
+    .swagger-ui .opblock-tag small { font-family: var(--font-mono) !important; }
+
+    /* Operation blocks */
+    .swagger-ui .opblock {
+      border-radius: 6px !important;
+      border: 1px solid #e2e8f0 !important;
+      box-shadow: none !important;
+      margin-bottom: 8px !important;
+    }
+
+    .swagger-ui .opblock .opblock-summary-method {
+      font-family: var(--font-mono) !important;
+      font-size: 0.72rem !important;
+      font-weight: 500 !important;
+      border-radius: 4px !important;
+      min-width: 62px !important;
+      text-align: center !important;
+      letter-spacing: 0.05em !important;
+    }
+
+    .swagger-ui .opblock.opblock-post   { border-left: 3px solid #3b82f6 !important; background: rgba(59,130,246,0.03) !important; }
+    .swagger-ui .opblock.opblock-get    { border-left: 3px solid var(--teal) !important; background: rgba(45,212,191,0.03) !important; }
+    .swagger-ui .opblock.opblock-delete { border-left: 3px solid #ef4444 !important; background: rgba(239,68,68,0.03) !important; }
+
+    .swagger-ui .opblock .opblock-summary-description {
+      font-family: var(--font-sans) !important;
+      font-size: 0.85rem !important;
+      color: #334155 !important;
+    }
+
+    .swagger-ui .opblock-summary-path {
+      font-family: var(--font-mono) !important;
+      font-size: 0.82rem !important;
+      color: #1e293b !important;
+      font-weight: 500 !important;
+    }
+
+    /* Buttons */
+    .swagger-ui .btn.execute {
+      background: var(--teal) !important;
+      border-color: var(--teal) !important;
+      color: var(--navy) !important;
+      font-family: var(--font-mono) !important;
+      font-size: 0.75rem !important;
+      font-weight: 500 !important;
+      letter-spacing: 0.05em !important;
+      border-radius: 5px !important;
+      padding: 7px 18px !important;
+    }
+
+    .swagger-ui .btn.execute:hover {
+      background: var(--teal-dim) !important;
+      border-color: var(--teal-dim) !important;
+    }
+
+    .swagger-ui .btn.try-out__btn,
+    .swagger-ui .btn.cancel {
+      font-family: var(--font-mono) !important;
+      font-size: 0.72rem !important;
+      border-radius: 5px !important;
+    }
+
+    .swagger-ui .btn.authorize {
+      background: transparent !important;
+      border: 1px solid var(--teal) !important;
+      color: var(--teal) !important;
+      font-family: var(--font-mono) !important;
+      font-size: 0.72rem !important;
+      letter-spacing: 0.05em !important;
+      border-radius: 5px !important;
+    }
+
+    /* Responses */
+    .swagger-ui .response-col_status { font-family: var(--font-mono) !important; font-weight: 500 !important; }
+    .swagger-ui .response-col_description { font-family: var(--font-sans) !important; font-size: 0.85rem !important; }
+
+    .swagger-ui table.responses-table .response { background: #f8fafc !important; }
+
+    /* Code / JSON */
+    .swagger-ui .microlight,
+    .swagger-ui pre.microlight {
+      font-family: var(--font-mono) !important;
+      font-size: 0.8rem !important;
+      background: #0f172a !important;
+      color: #e2e8f0 !important;
+      border-radius: 5px !important;
+      padding: 1rem !important;
+      line-height: 1.6 !important;
+    }
+
+    .swagger-ui .highlight-code {
+      background: #0f172a !important;
+      border-radius: 5px !important;
+    }
+
+    /* Models */
+    .swagger-ui section.models { border: 1px solid #e2e8f0 !important; border-radius: 8px !important; }
+    .swagger-ui section.models h4 {
+      font-family: var(--font-sans) !important;
+      font-weight: 600 !important;
+      color: var(--navy) !important;
+    }
+
+    .swagger-ui .model-title { font-family: var(--font-mono) !important; font-weight: 500 !important; color: #334155 !important; }
+    .swagger-ui .prop-type { font-family: var(--font-mono) !important; color: var(--teal-dim) !important; }
+    .swagger-ui .prop-format { font-family: var(--font-mono) !important; color: #94a3b8 !important; }
+
+    /* Parameters */
+    .swagger-ui .parameters-col_description { font-family: var(--font-sans) !important; font-size: 0.85rem !important; }
+    .swagger-ui .parameter__name { font-family: var(--font-mono) !important; font-weight: 500 !important; font-size: 0.82rem !important; color: #1e293b !important; }
+    .swagger-ui .parameter__type { font-family: var(--font-mono) !important; color: var(--teal-dim) !important; font-size: 0.75rem !important; }
+
+    /* Input fields */
+    .swagger-ui input[type=text],
+    .swagger-ui input[type=email],
+    .swagger-ui input[type=file],
+    .swagger-ui input[type=password],
+    .swagger-ui input[type=search],
+    .swagger-ui textarea {
+      font-family: var(--font-mono) !important;
+      font-size: 0.82rem !important;
+      border: 1px solid #cbd5e1 !important;
+      border-radius: 4px !important;
+      padding: 6px 10px !important;
+    }
+
+    .swagger-ui input[type=text]:focus,
+    .swagger-ui textarea:focus {
+      border-color: var(--teal) !important;
+      outline: none !important;
+      box-shadow: 0 0 0 2px rgba(45,212,191,0.15) !important;
+    }
+
+    /* Select */
+    .swagger-ui select {
+      font-family: var(--font-mono) !important;
+      font-size: 0.8rem !important;
+      border: 1px solid #cbd5e1 !important;
+      border-radius: 4px !important;
+    }
+
+    /* ── FOOTER ─────────────────────────────────────────────────────────────── */
+    .site-footer {
+      background: var(--navy);
+      border-top: 1px solid var(--border);
+      padding: 1.5rem 2rem;
+      text-align: center;
+      position: relative;
+    }
+
+    .site-footer::before {
+      content: '';
+      position: absolute;
+      bottom: 0; left: 0; right: 0;
+      height: 2px;
+      background: linear-gradient(90deg, transparent, var(--teal), transparent);
+      opacity: 0.4;
+    }
+
+    .footer-text {
+      font-family: var(--font-mono);
+      font-size: 0.68rem;
+      color: var(--text-muted);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .footer-text span { color: var(--teal); opacity: 0.7; }
+
+    /* ── ANIMATIONS ─────────────────────────────────────────────────────────── */
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(12px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .hero-copy  { animation: fadeUp 0.5s ease both; }
+    .hero-pills { animation: fadeUp 0.5s ease 0.1s both; }
+    .swagger-wrap { animation: fadeUp 0.5s ease 0.15s both; }
+
+    /* Responsive */
+    @media (max-width: 640px) {
+      .header-inner { padding: 0 1rem; }
+      .status-dot { display: none; }
+      .swagger-wrap { padding: 1rem; }
+      .hero { padding: 1.75rem 1rem; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ── HEADER ─────────────────────────────────────────────────────────────── -->
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="brand" href="#">
+        <div class="brand-icon">
+          <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path d="M12 2L2 7v10l10 5 10-5V7L12 2zm0 2.18L20 8.5v7l-8 4-8-4v-7l8-4.32zM11 9v2H9v2h2v2h2v-2h2v-2h-2V9h-2z"/>
+          </svg>
+        </div>
+        <div class="brand-text">
+          <span class="brand-name">HealthPay</span>
+          <span class="brand-tagline">Claims Processing Engine</span>
+        </div>
+      </a>
+      <div class="header-right">
+        <span class="status-dot">Live API</span>
+        <span class="version-badge">v1.0</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- ── HERO ───────────────────────────────────────────────────────────────── -->
+  <section class="hero">
+    <div class="hero-inner">
+      <div class="hero-copy">
+        <h1>REST API <em>Reference</em></h1>
+        <p>Submit and track medical insurance claims, calculate patient responsibility,
+           detect anomalous billing patterns, and process payments — all via a single
+           HTTP interface backed by Firebase Cloud Functions and Firestore.</p>
+      </div>
+      <div class="hero-pills">
+        <span class="pill pill-teal">Firebase Functions</span>
+        <span class="pill pill-teal">Firestore</span>
+        <span class="pill pill-white">TypeScript</span>
+        <span class="pill pill-white">REST / JSON</span>
+        <span class="pill pill-white">OpenAPI 3.0</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── SWAGGER UI ──────────────────────────────────────────────────────────── -->
+  <main class="swagger-wrap">
+    <div id="swagger-ui"></div>
+  </main>
+
+  <!-- ── FOOTER ─────────────────────────────────────────────────────────────── -->
+  <footer class="site-footer">
+    <p class="footer-text">
+      HealthPay Claims Processing Engine <span>—</span> Terence Kaite
+    </p>
+  </footer>
+
+  <script src="https://unpkg.com/swagger-ui-dist@5.18.2/swagger-ui-bundle.js"></script>
+  <script>
+  const spec = {
+    openapi: "3.0.3",
+    info: {
+      title: "HealthPay Claims Processing API",
+      version: "1.0.0",
+      description: `## Overview
+
+The HealthPay Claims Processing Engine validates medical insurance claims, calculates patient vs. insurer responsibility, detects anomalous billing patterns, and processes patient payments.
+
+## Base URL
+\`\`\`
+https://us-central1-health-pay-api.cloudfunctions.net/api
+\`\`\`
+Or via Firebase Hosting rewrite:
+\`\`\`
+https://<your-project>.web.app/api
+\`\`\`
+
+## Claim Lifecycle
+
+\`\`\`
+SUBMITTED → VALIDATED → ADJUDICATED → PATIENT_BILLED → PAID
+                    ↘ FLAGGED (manual review required)
+              ↘ DENIED (at any stage)
+\`\`\`
+
+## Rules Engine
+
+Claims are evaluated by a **Chain of Responsibility** pipeline:
+
+| Rule | Trigger | Action |
+|------|---------|--------|
+| ProviderLicenseRule | License expired/suspended | REJECT → DENIED |
+| DuplicateClaimRule | Same provider+patient+CPT within 24h | REJECT → DENIED |
+| PlanCoverageRule | CPT code not in patient's plan | DENY → DENIED |
+| AmountCeilingRule | Billed > 3× CPT average | FLAG → FLAGGED |
+| DeductibleCheckRule | Unmet annual deductible | ADJUST (non-blocking) |
+
+## Anomaly Detection
+
+Every claim submission scores the provider on four signals (0–25 pts each):
+- **Velocity** — claim volume spike vs 83-day baseline
+- **Amount** — over-billing rate vs CPT averages
+- **Clustering** — incompatible CPT code combinations
+- **Temporal** — off-hours & burst patterns
+
+## Correlation IDs
+
+Every response includes \`x-correlation-id\` header and \`correlationId\` in error bodies for distributed tracing.`,
+    },
+    tags: [
+      { name: "Claims",    description: "Submit, retrieve, list, and manage medical insurance claims" },
+      { name: "Payments",  description: "Record and track patient payments against billed claims" },
+      { name: "Providers", description: "Provider dashboard statistics and anomaly risk scoring" },
+      { name: "Admin",     description: "Seed data and health check endpoints" },
+    ],
+    paths: {
+
+      // ── /api/health ──────────────────────────────────────────────────────────
+      "/api/health": {
+        get: {
+          tags: ["Admin"],
+          summary: "Health check",
+          description: "Returns a simple liveness check. Use this for uptime monitoring.",
+          operationId: "healthCheck",
+          responses: {
+            200: {
+              description: "Service is healthy",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      status: { type: "string", example: "ok" },
+                      service: { type: "string", example: "healthpay-claims-api" },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+
+      // ── /api/seed ────────────────────────────────────────────────────────────
+      "/api/seed": {
+        post: {
+          tags: ["Admin"],
+          summary: "Seed reference data",
+          description: `Idempotent endpoint that populates Firestore with reference data and sample claims.
+
+Creates:
+- **6 CPT codes** with average amounts and incompatibility rules
+- **2 insurance plans** (Gold, Bronze)
+- **3 providers** (normal, anomalous, expired-license)
+- **3 patients**
+- **25 normal claims** for \`PROV_NORMAL_001\`
+- **~175 anomalous claims** for \`PROV_ANOMALOUS_001\` (velocity spike, over-billing, incompatible codes, off-hours)
+
+Run this before testing other endpoints.`,
+          operationId: "seedData",
+          responses: {
+            201: {
+              description: "Seed data created",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/SeedResponse" },
+                },
+              },
+            },
+            500: { $ref: "#/components/responses/InternalError" },
+          },
+        },
+      },
+
+      // ── POST /api/claims ─────────────────────────────────────────────────────
+      "/api/claims": {
+        post: {
+          tags: ["Claims"],
+          summary: "Submit a claim",
+          description: `Validates, adjudicates, and returns a processed claim.
+
+**Processing flow:**
+1. Provider license check
+2. Duplicate detection (same provider+patient+CPT within 24h)
+3. Plan coverage check
+4. Amount ceiling check (>3× CPT average → FLAGGED)
+5. Deductible adjustment
+6. Adjudication (insurer vs patient responsibility split)
+7. Anomaly risk score computation
+
+**Idempotency:** Supply \`idempotencyKey\` to safely retry — identical keys return the original claim without reprocessing.`,
+          operationId: "submitClaim",
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/SubmitClaimRequest" },
+                examples: {
+                  normalClaim: {
+                    summary: "Normal office visit",
+                    value: {
+                      providerId: "PROV_NORMAL_001",
+                      patientId: "PAT_001",
+                      cptCodes: ["99213"],
+                      billedAmount: 150,
+                      idempotencyKey: "visit-2026-03-15-pat001",
+                    },
+                  },
+                  overBilledClaim: {
+                    summary: "Over-billed claim (will be FLAGGED)",
+                    value: {
+                      providerId: "PROV_NORMAL_001",
+                      patientId: "PAT_002",
+                      cptCodes: ["99213"],
+                      billedAmount: 600,
+                    },
+                  },
+                  expiredProvider: {
+                    summary: "Expired provider (will be DENIED)",
+                    value: {
+                      providerId: "PROV_EXPIRED_001",
+                      patientId: "PAT_001",
+                      cptCodes: ["99213"],
+                      billedAmount: 150,
+                    },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            201: {
+              description: "Claim processed — status PATIENT_BILLED",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ClaimResponse" },
+                },
+              },
+            },
+            202: {
+              description: "Claim flagged for manual review — status FLAGGED",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ClaimResponse" },
+                },
+              },
+            },
+            400: { $ref: "#/components/responses/ValidationError" },
+            404: { $ref: "#/components/responses/NotFound" },
+            422: {
+              description: "Claim denied by rules engine — status DENIED",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ClaimResponse" },
+                },
+              },
+            },
+            500: { $ref: "#/components/responses/InternalError" },
+          },
+        },
+
+        get: {
+          tags: ["Claims"],
+          summary: "List claims",
+          description: `Returns a cursor-paginated list of claims with optional filters.
+
+**Pagination:** Pass the \`nextCursor\` from a previous response as the \`cursor\` parameter to retrieve the next page.`,
+          operationId: "listClaims",
+          parameters: [
+            {
+              name: "providerId",
+              in: "query",
+              description: "Filter by provider ID",
+              schema: { type: "string", example: "PROV_NORMAL_001" },
+            },
+            {
+              name: "patientId",
+              in: "query",
+              description: "Filter by patient ID",
+              schema: { type: "string", example: "PAT_001" },
+            },
+            {
+              name: "status",
+              in: "query",
+              description: "Filter by claim status",
+              schema: { $ref: "#/components/schemas/ClaimStatus" },
+            },
+            {
+              name: "from",
+              in: "query",
+              description: "Start of date range (ISO 8601)",
+              schema: { type: "string", format: "date-time", example: "2026-01-01T00:00:00Z" },
+            },
+            {
+              name: "to",
+              in: "query",
+              description: "End of date range (ISO 8601)",
+              schema: { type: "string", format: "date-time", example: "2026-12-31T23:59:59Z" },
+            },
+            {
+              name: "cursor",
+              in: "query",
+              description: "Pagination cursor — the last claim ID from the previous response",
+              schema: { type: "string" },
+            },
+            {
+              name: "limit",
+              in: "query",
+              description: "Page size (1–100, default 20)",
+              schema: { type: "integer", minimum: 1, maximum: 100, default: 20 },
+            },
+          ],
+          responses: {
+            200: {
+              description: "Paginated list of claims",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ClaimsListResponse" },
+                },
+              },
+            },
+            500: { $ref: "#/components/responses/InternalError" },
+          },
+        },
+      },
+
+      // ── /api/claims/{id} ─────────────────────────────────────────────────────
+      "/api/claims/{id}": {
+        get: {
+          tags: ["Claims"],
+          summary: "Get claim by ID",
+          description: "Retrieves the full claim document including adjudication breakdown and current status.",
+          operationId: "getClaim",
+          parameters: [
+            { name: "id", in: "path", required: true, description: "Claim document ID", schema: { type: "string" } },
+          ],
+          responses: {
+            200: {
+              description: "Claim found",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/Claim" },
+                },
+              },
+            },
+            404: { $ref: "#/components/responses/NotFound" },
+            500: { $ref: "#/components/responses/InternalError" },
+          },
+        },
+      },
+
+      // ── /api/claims/{id}/payments ─────────────────────────────────────────────
+      "/api/claims/{id}/payments": {
+        post: {
+          tags: ["Payments"],
+          summary: "Process a payment",
+          description: `Records a patient payment against a billed claim.
+
+**Partial payments:** Allowed — the claim stays in PATIENT_BILLED until fully settled.
+
+**Overpayments:** Accepted with a warning in the response — overpayment amount is returned.
+
+**Idempotency:** Provide \`idempotencyKey\` to safely retry without double-charging. The same key always returns the original payment.
+
+**State transition:** PATIENT_BILLED → PAID when \`amountPaid >= patientResponsibility\`.`,
+          operationId: "processPayment",
+          parameters: [
+            { name: "id", in: "path", required: true, description: "Claim ID to pay against", schema: { type: "string" } },
+          ],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/ProcessPaymentRequest" },
+                examples: {
+                  fullPayment: {
+                    summary: "Full payment",
+                    value: { amount: 137.50, idempotencyKey: "pay-clm001-2026-03-15" },
+                  },
+                  partialPayment: {
+                    summary: "Partial payment",
+                    value: { amount: 50.00, idempotencyKey: "partial-pay-clm001-001" },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            201: {
+              description: "Payment processed",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/PaymentResponse" },
+                },
+              },
+            },
+            400: { $ref: "#/components/responses/ValidationError" },
+            404: { $ref: "#/components/responses/NotFound" },
+            409: {
+              description: "Claim is not in PATIENT_BILLED state",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                  example: {
+                    error: {
+                      code: "INVALID_CLAIM_STATE",
+                      message: "Cannot accept payment for a claim with status DENIED. Expected PATIENT_BILLED",
+                      correlationId: "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+                    },
+                  },
+                },
+              },
+            },
+            500: { $ref: "#/components/responses/InternalError" },
+          },
+        },
+
+        get: {
+          tags: ["Payments"],
+          summary: "List payments for a claim",
+          description: "Returns all payments recorded against a specific claim, ordered by most recent first.",
+          operationId: "listPayments",
+          parameters: [
+            { name: "id", in: "path", required: true, description: "Claim ID", schema: { type: "string" } },
+          ],
+          responses: {
+            200: {
+              description: "List of payments",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/PaymentsListResponse" },
+                },
+              },
+            },
+            404: { $ref: "#/components/responses/NotFound" },
+            500: { $ref: "#/components/responses/InternalError" },
+          },
+        },
+      },
+
+      // ── /api/providers/{id}/dashboard ─────────────────────────────────────────
+      "/api/providers/{id}/dashboard": {
+        get: {
+          tags: ["Providers"],
+          summary: "Provider dashboard",
+          description: "Returns aggregated statistics for a provider: claim counts by status, total revenue, average processing time, and flagged claim rate.",
+          operationId: "getProviderDashboard",
+          parameters: [
+            { name: "id", in: "path", required: true, description: "Provider ID (e.g. PROV_NORMAL_001)", schema: { type: "string" } },
+          ],
+          responses: {
+            200: {
+              description: "Provider dashboard data",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ProviderDashboard" },
+                },
+              },
+            },
+            404: { $ref: "#/components/responses/NotFound" },
+            500: { $ref: "#/components/responses/InternalError" },
+          },
+        },
+      },
+
+      // ── /api/providers/{id}/risk-score ────────────────────────────────────────
+      "/api/providers/{id}/risk-score": {
+        post: {
+          tags: ["Providers"],
+          summary: "Compute anomaly risk score",
+          description: `Runs the multi-signal anomaly detection algorithm against the provider's claim history and returns a composite risk score (0–100).
+
+**Signals (each max 25 pts):**
+- **Velocity** — z-score of last-7-day avg vs 83-day baseline
+- **Amount** — rate of claims exceeding 3× CPT average in last 30 days
+- **Clustering** — rate of claims with incompatible CPT code combinations
+- **Temporal** — off-hours submissions (22:00–06:00 UTC) + burst detection
+
+**Score interpretation:**
+- 0–20: Low risk
+- 21–50: Moderate — monitor
+- 51–75: High — review recommended
+- 76–100: Critical — immediate review
+
+Try with \`PROV_ANOMALOUS_001\` after seeding for a high score example.`,
+          operationId: "computeRiskScore",
+          parameters: [
+            { name: "id", in: "path", required: true, description: "Provider ID", schema: { type: "string" } },
+          ],
+          requestBody: {
+            required: false,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    windowDays: {
+                      type: "integer",
+                      description: "Number of days of history to analyse (default: 90)",
+                      default: 90,
+                      minimum: 7,
+                      maximum: 365,
+                    },
+                  },
+                },
+                example: { windowDays: 90 },
+              },
+            },
+          },
+          responses: {
+            200: {
+              description: "Risk score result",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/RiskScoreResponse" },
+                },
+              },
+            },
+            404: { $ref: "#/components/responses/NotFound" },
+            500: { $ref: "#/components/responses/InternalError" },
+          },
+        },
+      },
+    },
+
+    components: {
+      schemas: {
+
+        // ── Enums ───────────────────────────────────────────────────────────────
+        ClaimStatus: {
+          type: "string",
+          enum: [
+            "SUBMITTED",
+            "VALIDATED",
+            "ADJUDICATED",
+            "PATIENT_BILLED",
+            "PAID",
+            "DENIED",
+            "FLAGGED",
+          ],
+          description: `Claim lifecycle status:
+- **SUBMITTED** — received, not yet validated
+- **VALIDATED** — passed all business rules
+- **ADJUDICATED** — insurance responsibility calculated
+- **PATIENT_BILLED** — patient has a balance due
+- **PAID** — patient responsibility fully settled
+- **DENIED** — rejected by rules engine (hard failure)
+- **FLAGGED** — requires manual review before processing`,
+        },
+
+        // ── Core domain ─────────────────────────────────────────────────────────
+        Claim: {
+          type: "object",
+          required: ["claimId", "providerId", "patientId", "cptCodes", "billedAmount", "status", "submittedAt", "correlationId"],
+          properties: {
+            claimId:              { type: "string", description: "Firestore document ID", example: "abc123xyz" },
+            providerId:           { type: "string", example: "PROV_NORMAL_001" },
+            patientId:            { type: "string", example: "PAT_001" },
+            cptCodes:             { type: "array", items: { type: "string" }, example: ["99213"] },
+            billedAmount:         { type: "number", format: "float", example: 150.00 },
+            status:               { $ref: "#/components/schemas/ClaimStatus" },
+            submittedAt:          { type: "string", format: "date-time" },
+            validatedAt:          { type: "string", format: "date-time", nullable: true },
+            adjudicatedAt:        { type: "string", format: "date-time", nullable: true },
+            patientBilledAt:      { type: "string", format: "date-time", nullable: true },
+            paidAt:               { type: "string", format: "date-time", nullable: true },
+            insurerAmount:        { type: "number", format: "float", nullable: true, description: "Amount the insurer pays", example: 92.00 },
+            patientResponsibility:{ type: "number", format: "float", nullable: true, description: "Amount the patient owes", example: 58.00 },
+            deductibleApplied:    { type: "number", format: "float", nullable: true, example: 0 },
+            copayApplied:         { type: "number", format: "float", nullable: true, example: 30.00 },
+            coinsuranceApplied:   { type: "number", format: "float", nullable: true, example: 28.00 },
+            amountPaid:           { type: "number", format: "float", default: 0, example: 0 },
+            riskScore:            { type: "integer", minimum: 0, maximum: 100, example: 12 },
+            denialReason:         { type: "string", nullable: true, example: null },
+            flagReason:           { type: "string", nullable: true, example: null },
+            correlationId:        { type: "string", format: "uuid", example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890" },
+          },
+        },
+
+        SubmitClaimRequest: {
+          type: "object",
+          required: ["providerId", "patientId", "cptCodes", "billedAmount"],
+          properties: {
+            providerId:     { type: "string", description: "Provider document ID", example: "PROV_NORMAL_001" },
+            patientId:      { type: "string", description: "Patient document ID", example: "PAT_001" },
+            cptCodes:       { type: "array", items: { type: "string" }, minItems: 1, description: "One or more CPT procedure codes", example: ["99213"] },
+            billedAmount:   { type: "number", format: "float", minimum: 0.01, description: "Total amount billed by the provider", example: 150.00 },
+            idempotencyKey: { type: "string", description: "Optional — supply to make this submission safely retryable", example: "visit-2026-03-15-pat001" },
+          },
+        },
+
+        ClaimResponse: {
+          type: "object",
+          properties: {
+            claimId:     { type: "string", example: "abc123xyz" },
+            status:      { $ref: "#/components/schemas/ClaimStatus" },
+            riskScore:   { type: "integer", minimum: 0, maximum: 100, example: 12 },
+            riskSignals: { $ref: "#/components/schemas/RiskSignals" },
+            ruleResults: { type: "array", items: { $ref: "#/components/schemas/RuleResult" } },
+            adjudication: {
+              type: "object",
+              nullable: true,
+              properties: {
+                insurerAmount:         { type: "number" },
+                patientResponsibility: { type: "number" },
+                deductibleApplied:     { type: "number" },
+                copayApplied:          { type: "number" },
+                coinsuranceApplied:    { type: "number" },
+              },
+            },
+            denialReason:  { type: "string", nullable: true },
+            flagReason:    { type: "string", nullable: true },
+            correlationId: { type: "string" },
+            idempotent:    { type: "boolean", description: "true when the key matched a pre-existing claim", example: false },
+          },
+        },
+
+        ClaimsListResponse: {
+          type: "object",
+          properties: {
+            claims: { type: "array", items: { $ref: "#/components/schemas/Claim" } },
+            pagination: {
+              type: "object",
+              properties: {
+                pageSize:   { type: "integer", example: 20 },
+                hasMore:    { type: "boolean", example: true },
+                nextCursor: { type: "string", nullable: true, description: "Pass as cursor in the next request", example: "abc123xyz" },
+              },
+            },
+          },
+        },
+
+        ProcessPaymentRequest: {
+          type: "object",
+          required: ["amount", "idempotencyKey"],
+          properties: {
+            amount:         { type: "number", format: "float", minimum: 0.01, description: "Payment amount in USD", example: 58.00 },
+            idempotencyKey: { type: "string", description: "Unique key for safe retry — must be unique per payment attempt", example: "pay-abc123-2026-03-15" },
+          },
+        },
+
+        PaymentResponse: {
+          type: "object",
+          properties: {
+            paymentId:     { type: "string", example: "pmt_xyz789" },
+            claimId:       { type: "string", example: "abc123xyz" },
+            amount:        { type: "number", example: 58.00 },
+            status:        { type: "string", enum: ["processed", "pending", "refunded"], example: "processed" },
+            claimStatus:   { $ref: "#/components/schemas/ClaimStatus" },
+            amountPaid:    { type: "number", description: "Total paid so far against this claim", example: 58.00 },
+            remaining:     { type: "number", description: "Remaining patient balance", example: 0.00 },
+            overpayment:   { type: "number", description: "Amount paid beyond responsibility (0 if none)", example: 0.00 },
+            correlationId: { type: "string" },
+            idempotent:    { type: "boolean", example: false },
+          },
+        },
+
+        PaymentsListResponse: {
+          type: "object",
+          properties: {
+            claimId:  { type: "string" },
+            payments: { type: "array", items: { $ref: "#/components/schemas/PaymentResponse" } },
+          },
+        },
+
+        ProviderDashboard: {
+          type: "object",
+          properties: {
+            providerId: { type: "string", example: "PROV_NORMAL_001" },
+            provider: { type: "object", description: "Raw provider document" },
+            summary: {
+              type: "object",
+              properties: {
+                totalClaims:             { type: "integer", example: 125 },
+                byStatus: {
+                  type: "object",
+                  description: "Claim count keyed by ClaimStatus",
+                  example: { SUBMITTED: 0, VALIDATED: 0, ADJUDICATED: 0, PATIENT_BILLED: 110, PAID: 12, DENIED: 2, FLAGGED: 1 },
+                },
+                totalRevenue:            { type: "number", format: "float", description: "Sum of insurerAmount for processed claims", example: 18450.00 },
+                avgProcessingTimeMinutes:{ type: "number", format: "float", description: "Mean time from SUBMITTED to PATIENT_BILLED", example: 0.3 },
+                flaggedClaimRate:        { type: "number", format: "float", description: "Proportion of flagged/high-risk claims", example: 0.024 },
+                latestRiskScore:         { type: "integer", minimum: 0, maximum: 100, example: 8 },
+              },
+            },
+          },
+        },
+
+        RiskScoreResponse: {
+          type: "object",
+          properties: {
+            providerId:     { type: "string", example: "PROV_ANOMALOUS_001" },
+            score:          { type: "integer", minimum: 0, maximum: 100, description: "Composite risk score (0=clean, 100=critical)", example: 87 },
+            signals:        { $ref: "#/components/schemas/RiskSignals" },
+            computedAt:     { type: "string", format: "date-time" },
+            claimsAnalyzed: { type: "integer", example: 178 },
+          },
+        },
+
+        RiskSignals: {
+          type: "object",
+          description: "Breakdown of the four anomaly signals (0–25 pts each)",
+          properties: {
+            velocityScore:   { type: "integer", minimum: 0, maximum: 25, description: "Billing velocity spike score", example: 24 },
+            amountScore:     { type: "integer", minimum: 0, maximum: 25, description: "Over-billing distribution score", example: 20 },
+            clusteringScore: { type: "integer", minimum: 0, maximum: 25, description: "Incompatible procedure combination score", example: 25 },
+            temporalScore:   { type: "integer", minimum: 0, maximum: 25, description: "Off-hours and burst pattern score", example: 18 },
+          },
+        },
+
+        RuleResult: {
+          type: "object",
+          properties: {
+            ruleName: { type: "string", example: "AmountCeilingRule" },
+            passed:   { type: "boolean", example: false },
+            action: {
+              type: "string",
+              enum: ["CONTINUE", "REJECT", "DENY", "FLAG", "ADJUST"],
+              description: "REJECT/DENY stop processing; FLAG marks for review; ADJUST modifies adjudication; CONTINUE is a pass",
+              example: "FLAG",
+            },
+            errorCode: { type: "string", nullable: true, example: "AMOUNT_CEILING_EXCEEDED" },
+            message:   { type: "string", nullable: true, example: "Billed amount $600 exceeds 3× the $150 average for CPT 99213" },
+          },
+        },
+
+        ErrorResponse: {
+          type: "object",
+          properties: {
+            error: {
+              type: "object",
+              required: ["code", "message", "correlationId"],
+              properties: {
+                code:          { type: "string", description: "Machine-readable error code", example: "DUPLICATE_CLAIM" },
+                message:       { type: "string", description: "Human-readable explanation", example: "A claim with the same provider, patient, and CPT code(s) was submitted within 24 hours" },
+                correlationId: { type: "string", format: "uuid", description: "Use this ID when contacting support", example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890" },
+                details:       { description: "Optional structured details (validation errors, etc.)", nullable: true },
+              },
+            },
+          },
+        },
+
+        SeedResponse: {
+          type: "object",
+          properties: {
+            message: { type: "string", example: "Seed data created successfully" },
+            created: {
+              type: "object",
+              properties: {
+                cptCodes:        { type: "integer", example: 6 },
+                insurancePlans:  { type: "integer", example: 2 },
+                providers:       { type: "integer", example: 3 },
+                patients:        { type: "integer", example: 3 },
+                normalClaims:    { type: "integer", example: 25 },
+                anomalousClaims: { type: "integer", example: 175 },
+              },
+            },
+            testScenarios: { type: "object" },
+          },
+        },
+      },
+
+      responses: {
+        ValidationError: {
+          description: "Request body failed validation",
+          content: {
+            "application/json": {
+              schema: { $ref: "#/components/schemas/ErrorResponse" },
+              example: {
+                error: {
+                  code: "VALIDATION_ERROR",
+                  message: "Missing required fields: providerId, patientId, cptCodes, billedAmount",
+                  correlationId: "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+                },
+              },
+            },
+          },
+        },
+        NotFound: {
+          description: "Resource not found",
+          content: {
+            "application/json": {
+              schema: { $ref: "#/components/schemas/ErrorResponse" },
+              example: {
+                error: {
+                  code: "CLAIM_NOT_FOUND",
+                  message: "Claim abc123 not found",
+                  correlationId: "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+                },
+              },
+            },
+          },
+        },
+        InternalError: {
+          description: "Unexpected server error — correlationId included for support",
+          content: {
+            "application/json": {
+              schema: { $ref: "#/components/schemas/ErrorResponse" },
+              example: {
+                error: {
+                  code: "INTERNAL_ERROR",
+                  message: "An unexpected error occurred. Please try again.",
+                  correlationId: "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  };
+
+  SwaggerUIBundle({
+    spec,
+    dom_id: "#swagger-ui",
+    deepLinking: true,
+    presets: [
+      SwaggerUIBundle.presets.apis,
+      SwaggerUIBundle.SwaggerUIStandalonePreset,
+    ],
+    layout: "BaseLayout",
+    defaultModelsExpandDepth: 1,
+    defaultModelExpandDepth: 2,
+    defaultModelRendering: "model",
+    displayRequestDuration: true,
+    docExpansion: "list",
+    filter: true,
+    showExtensions: false,
+    showCommonExtensions: false,
+    syntaxHighlight: {
+      activated: true,
+      theme: "tomorrow-night",
+    },
+  });
+  </script>
+</body>
+</html>

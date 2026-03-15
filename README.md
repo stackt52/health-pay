@@ -1,36 +1,66 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Health-Pay
+
+A health payment management system built with Next.js and Firebase.
+
+## Project Overview
+
+**Health-Pay** is a web-based application designed to facilitate health-related payments, adjudications, and provider management. It leverages a modern tech stack to provide a scalable and efficient experience.
+
+- **Frontend**: Next.js 15+, React 19, TypeScript, Tailwind CSS 4
+- **Backend**: Firebase Cloud Functions (Express.js on Node.js 24), Firestore database
+- **Hosting**: Firebase Hosting
 
 ## Getting Started
 
-First, run the development server:
+### Prerequisites
 
+- Node.js (v24 or compatible)
+- Firebase CLI (`npm install -g firebase-tools`)
+
+### Setup
+
+1. **Clone the repository**:
+   ```bash
+   git clone <repository-url>
+   cd health-pay
+   ```
+2. **Install dependencies**:
+   ```bash
+   # Install root dependencies
+   npm install
+   
+   # Install backend dependencies
+   cd functions && npm install && cd ..
+   ```
+
+### Running Locally
+
+- **Frontend**: `npm run dev` (Starts Next.js development server)
+- **Backend (Emulators)**: `cd functions && npm run serve` (Starts Firebase emulators)
+
+## Project Structure
+
+- `src/`: Next.js frontend source code (App Router).
+- `public/`: Static assets and frontend entry point.
+- `functions/`: Firebase Cloud Functions (Backend API).
+- `firestore.rules`: Security rules for the database.
+- `firebase.json`: Configuration for Firebase Hosting and Emulators.
+
+## Deployment
+
+Deploy the entire project using the Firebase CLI:
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+firebase deploy
 ```
+For targeted deployments:
+- `firebase deploy --only hosting` (Frontend only)
+- `firebase deploy --only functions` (Backend only)
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Documentation
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+For more detailed onboarding instructions, refer to the README files in the following directories:
+- [Backend (Functions) Onboarding](./functions/README.md)
+- [Public Assets Onboarding](./public/README.md)
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+---
+*Created by the Health-Pay Team.*

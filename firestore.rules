@@ -1,0 +1,16 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // All data access goes through the Firebase Admin SDK in Cloud Functions,
+    // which bypasses these rules entirely. Client-side access is fully denied.
+    //
+    // If you add a web or mobile client that reads Firestore directly,
+    // replace these rules with appropriate auth-based rules.
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
