@@ -1,7 +1,7 @@
-import { computeRiskScore } from "../engines/anomaly";
-import type { ClaimForAnalysis, CptStats } from "../types";
+import {computeRiskScore} from "../engines/anomaly";
+import type {ClaimForAnalysis, CptStats} from "../types";
 
-// ─── Helpers ───────────────────────────────────────────────────────────────────
+// ─── Helpers ─────────────────────────
 
 const PROVIDER_ID = "PROV_TEST";
 
@@ -26,12 +26,12 @@ function daysAgo(n: number, hour = 10): Date {
 }
 
 const DEFAULT_CPT_STATS: Map<string, CptStats> = new Map([
-  ["99213", { code: "99213", avgBilledAmount: 150 }],
-  ["99214", { code: "99214", avgBilledAmount: 250 }],
-  ["99283", { code: "99283", avgBilledAmount: 800 }],
-  ["90837", { code: "90837", avgBilledAmount: 200 }],
-  ["73721", { code: "73721", avgBilledAmount: 1200 }],
-  ["29881", { code: "29881", avgBilledAmount: 4500 }],
+  ["99213", {code: "99213", avgBilledAmount: 150}],
+  ["99214", {code: "99214", avgBilledAmount: 250}],
+  ["99283", {code: "99283", avgBilledAmount: 800}],
+  ["90837", {code: "90837", avgBilledAmount: 200}],
+  ["73721", {code: "73721", avgBilledAmount: 1200}],
+  ["29881", {code: "29881", avgBilledAmount: 4500}],
 ]);
 
 // ─── Velocity signal ───────────────────────────────────────────────────────────
@@ -41,13 +41,13 @@ describe("Anomaly Detection — Billing Velocity", () => {
     // Baseline: 2 claims/day for days 8–60
     const normalClaims: ClaimForAnalysis[] = [];
     for (let d = 60; d >= 8; d--) {
-      normalClaims.push(makeClaim({ submittedAt: daysAgo(d) }));
-      normalClaims.push(makeClaim({ submittedAt: daysAgo(d) }));
+      normalClaims.push(makeClaim({submittedAt: daysAgo(d)}));
+      normalClaims.push(makeClaim({submittedAt: daysAgo(d)}));
     }
     // Recent (last 7 days): still 2/day — matches baseline
     for (let d = 6; d >= 0; d--) {
-      normalClaims.push(makeClaim({ submittedAt: daysAgo(d) }));
-      normalClaims.push(makeClaim({ submittedAt: daysAgo(d) }));
+      normalClaims.push(makeClaim({submittedAt: daysAgo(d)}));
+      normalClaims.push(makeClaim({submittedAt: daysAgo(d)}));
     }
 
     const result = computeRiskScore(PROVIDER_ID, normalClaims, DEFAULT_CPT_STATS);
@@ -60,13 +60,13 @@ describe("Anomaly Detection — Billing Velocity", () => {
     // Baseline: 2 claims/day for days 8–60
     const spikeClaims: ClaimForAnalysis[] = [];
     for (let d = 60; d >= 8; d--) {
-      spikeClaims.push(makeClaim({ submittedAt: daysAgo(d) }));
-      spikeClaims.push(makeClaim({ submittedAt: daysAgo(d) }));
+      spikeClaims.push(makeClaim({submittedAt: daysAgo(d)}));
+      spikeClaims.push(makeClaim({submittedAt: daysAgo(d)}));
     }
     // Recent: 15 claims/day — 7.5× baseline (>3 standard deviations above mean)
     for (let d = 6; d >= 0; d--) {
       for (let i = 0; i < 15; i++) {
-        spikeClaims.push(makeClaim({ submittedAt: daysAgo(d) }));
+        spikeClaims.push(makeClaim({submittedAt: daysAgo(d)}));
       }
     }
 
@@ -83,7 +83,7 @@ describe("Anomaly Detection — Amount Distribution", () => {
     const normalClaims: ClaimForAnalysis[] = [];
     for (let d = 30; d >= 0; d--) {
       normalClaims.push(
-        makeClaim({ submittedAt: daysAgo(d), billedAmount: 155 }), // ~1× avg
+        makeClaim({submittedAt: daysAgo(d), billedAmount: 155}), // ~1× avg
       );
     }
 
@@ -117,9 +117,9 @@ describe("Anomaly Detection — Amount Distribution", () => {
 describe("Anomaly Detection — Procedure Clustering", () => {
   it("assigns zero clustering score for claims with compatible CPT codes", () => {
     const normalClaims: ClaimForAnalysis[] = [
-      makeClaim({ submittedAt: daysAgo(5), cptCodes: ["99213"] }),
-      makeClaim({ submittedAt: daysAgo(4), cptCodes: ["90837"] }),
-      makeClaim({ submittedAt: daysAgo(3), cptCodes: ["73721"] }),
+      makeClaim({submittedAt: daysAgo(5), cptCodes: ["99213"]}),
+      makeClaim({submittedAt: daysAgo(4), cptCodes: ["90837"]}),
+      makeClaim({submittedAt: daysAgo(3), cptCodes: ["73721"]}),
     ];
 
     const result = computeRiskScore(PROVIDER_ID, normalClaims, DEFAULT_CPT_STATS);
@@ -149,7 +149,7 @@ describe("Anomaly Detection — Procedure Clustering", () => {
 
   it("identifies arthroscopy + MRI on the same day (73721 + 29881)", () => {
     const surgeryAndScan: ClaimForAnalysis[] = Array.from(
-      { length: 8 },
+      {length: 8},
       (_, i) =>
         makeClaim({
           submittedAt: daysAgo(i),
@@ -170,7 +170,7 @@ describe("Anomaly Detection — Temporal Patterns", () => {
     const businessHoursClaims: ClaimForAnalysis[] = [];
     for (let d = 30; d >= 1; d--) {
       businessHoursClaims.push(
-        makeClaim({ submittedAt: daysAgo(d, 14) }), // 14:00 UTC
+        makeClaim({submittedAt: daysAgo(d, 14)}), // 14:00 UTC
       );
     }
 
@@ -186,7 +186,7 @@ describe("Anomaly Detection — Temporal Patterns", () => {
   it("assigns a high temporal score for a burst of claims within one hour", () => {
     const now = new Date();
     // 20 claims all within the same 30-minute window
-    const burstClaims: ClaimForAnalysis[] = Array.from({ length: 20 }, (_, i) =>
+    const burstClaims: ClaimForAnalysis[] = Array.from({length: 20}, (_, i) =>
       makeClaim({
         submittedAt: new Date(now.getTime() - i * 90 * 1000), // 90s apart
       }),
@@ -200,7 +200,7 @@ describe("Anomaly Detection — Temporal Patterns", () => {
     const offHoursClaims: ClaimForAnalysis[] = [];
     for (let d = 20; d >= 1; d--) {
       // 23:00 UTC — off hours
-      offHoursClaims.push(makeClaim({ submittedAt: daysAgo(d, 23) }));
+      offHoursClaims.push(makeClaim({submittedAt: daysAgo(d, 23)}));
     }
 
     const result = computeRiskScore(
@@ -223,7 +223,7 @@ describe("Anomaly Detection — Composite Score", () => {
   });
 
   it("returns a score within [0, 100]", () => {
-    const extremeClaims = Array.from({ length: 50 }, (_, i) =>
+    const extremeClaims = Array.from({length: 50}, (_, i) =>
       makeClaim({
         submittedAt: daysAgo(i % 7, 23),
         cptCodes: ["99213", "99214"],
@@ -239,7 +239,7 @@ describe("Anomaly Detection — Composite Score", () => {
   it("includes providerId and computation metadata in the result", () => {
     const result = computeRiskScore(
       PROVIDER_ID,
-      [makeClaim({ submittedAt: daysAgo(1) })],
+      [makeClaim({submittedAt: daysAgo(1)})],
       DEFAULT_CPT_STATS,
     );
 

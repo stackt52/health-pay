@@ -15,7 +15,7 @@ import type {
   CptCode,
   Claim,
 } from "../types";
-import type { Timestamp } from "firebase-admin/firestore";
+import type {Timestamp} from "firebase-admin/firestore";
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -51,7 +51,7 @@ function makePlan(overrides: Partial<InsurancePlan> = {}): InsurancePlan {
     name: "Gold Plan",
     annualDeductible: 1500,
     deductibleMet: 800,
-    copay: { officeVisit: 30, specialist: 50, emergency: 250 },
+    copay: {officeVisit: 30, specialist: 50, emergency: 250},
     coinsuranceRate: 0.2,
     outOfPocketMax: 6000,
     coveredCptCodes: ["99213", "99214", "99283", "90837", "73721", "29881"],
@@ -129,7 +129,7 @@ describe("ProviderLicenseRule", () => {
 
   it("rejects a claim from a provider with status 'expired'", async () => {
     const context = makeContext({
-      provider: makeProvider({ licenseStatus: "expired" }),
+      provider: makeProvider({licenseStatus: "expired"}),
     });
     const result = await rule.evaluate(makeClaimRequest(), context);
     expect(result.passed).toBe(false);
@@ -139,7 +139,7 @@ describe("ProviderLicenseRule", () => {
 
   it("rejects a claim from a provider with status 'suspended'", async () => {
     const context = makeContext({
-      provider: makeProvider({ licenseStatus: "suspended" }),
+      provider: makeProvider({licenseStatus: "suspended"}),
     });
     const result = await rule.evaluate(makeClaimRequest(), context);
     expect(result.passed).toBe(false);
@@ -149,7 +149,7 @@ describe("ProviderLicenseRule", () => {
 
   it("rejects when licenseExpiry date is in the past", async () => {
     const context = makeContext({
-      provider: makeProvider({ licenseStatus: "active", licenseExpiry: PAST }),
+      provider: makeProvider({licenseStatus: "active", licenseExpiry: PAST}),
     });
     const result = await rule.evaluate(makeClaimRequest(), context);
     expect(result.passed).toBe(false);
@@ -179,7 +179,7 @@ describe("DuplicateClaimRule", () => {
       submittedAt: mockTimestamp(new Date(Date.now() - 2 * 60 * 60 * 1000)), // 2h ago
       correlationId: "test",
     };
-    const context = makeContext({ existingClaims: [recent] });
+    const context = makeContext({existingClaims: [recent]});
     const result = await rule.evaluate(makeClaimRequest(), context);
 
     expect(result.passed).toBe(false);
@@ -198,7 +198,7 @@ describe("DuplicateClaimRule", () => {
       submittedAt: mockTimestamp(new Date(Date.now() - 25 * 60 * 60 * 1000)), // 25h ago
       correlationId: "test",
     };
-    const context = makeContext({ existingClaims: [old] });
+    const context = makeContext({existingClaims: [old]});
     const result = await rule.evaluate(makeClaimRequest(), context);
 
     expect(result.passed).toBe(true);
@@ -215,9 +215,9 @@ describe("DuplicateClaimRule", () => {
       submittedAt: mockTimestamp(new Date(Date.now() - 60 * 60 * 1000)),
       correlationId: "test",
     };
-    const context = makeContext({ existingClaims: [different] });
+    const context = makeContext({existingClaims: [different]});
     const result = await rule.evaluate(
-      makeClaimRequest({ cptCodes: ["99213"] }),
+      makeClaimRequest({cptCodes: ["99213"]}),
       context,
     );
 
@@ -232,17 +232,17 @@ describe("PlanCoverageRule", () => {
 
   it("passes when all CPT codes are covered by the plan", async () => {
     const result = await rule.evaluate(
-      makeClaimRequest({ cptCodes: ["99213", "99214"] }),
+      makeClaimRequest({cptCodes: ["99213", "99214"]}),
       makeContext(),
     );
     expect(result.passed).toBe(true);
   });
 
   it("denies a claim with an uncovered CPT code", async () => {
-    const plan = makePlan({ coveredCptCodes: ["99213"] });
-    const context = makeContext({ plan });
+    const plan = makePlan({coveredCptCodes: ["99213"]});
+    const context = makeContext({plan});
     const result = await rule.evaluate(
-      makeClaimRequest({ cptCodes: ["99213", "99999"] }),
+      makeClaimRequest({cptCodes: ["99213", "99999"]}),
       context,
     );
 
@@ -260,7 +260,7 @@ describe("AmountCeilingRule", () => {
 
   it("passes when billed amount is within 3× the CPT average", async () => {
     const result = await rule.evaluate(
-      makeClaimRequest({ cptCodes: ["99213"], billedAmount: 449 }), // 2.99× $150 = $449
+      makeClaimRequest({cptCodes: ["99213"], billedAmount: 449}), // 2.99× $150 = $449
       makeContext(),
     );
     expect(result.passed).toBe(true);
@@ -268,7 +268,7 @@ describe("AmountCeilingRule", () => {
 
   it("flags a claim when billed amount exceeds 3× the CPT average", async () => {
     const result = await rule.evaluate(
-      makeClaimRequest({ cptCodes: ["99213"], billedAmount: 451 }), // 3.007× $150
+      makeClaimRequest({cptCodes: ["99213"], billedAmount: 451}), // 3.007× $150
       makeContext(),
     );
 
@@ -280,7 +280,7 @@ describe("AmountCeilingRule", () => {
   it("respects a custom multiplier", async () => {
     const strictRule = new AmountCeilingRule(2);
     const result = await strictRule.evaluate(
-      makeClaimRequest({ cptCodes: ["99213"], billedAmount: 310 }), // > 2× $150
+      makeClaimRequest({cptCodes: ["99213"], billedAmount: 310}), // > 2× $150
       makeContext(),
     );
 
@@ -296,7 +296,7 @@ describe("DeductibleCheckRule", () => {
 
   it("returns CONTINUE when the deductible is fully met", async () => {
     const context = makeContext({
-      plan: makePlan({ annualDeductible: 1500, deductibleMet: 1500 }),
+      plan: makePlan({annualDeductible: 1500, deductibleMet: 1500}),
     });
     const result = await rule.evaluate(makeClaimRequest(), context);
 
@@ -306,7 +306,7 @@ describe("DeductibleCheckRule", () => {
 
   it("returns ADJUST with message when deductible is partially unmet", async () => {
     const context = makeContext({
-      plan: makePlan({ annualDeductible: 1500, deductibleMet: 800 }),
+      plan: makePlan({annualDeductible: 1500, deductibleMet: 800}),
     });
     const result = await rule.evaluate(makeClaimRequest(), context);
 
@@ -331,7 +331,7 @@ describe("RulesEngine — full pipeline", () => {
   it("stops at first REJECT — does not evaluate remaining rules", async () => {
     const engine = createDefaultRulesEngine();
     const context = makeContext({
-      provider: makeProvider({ licenseStatus: "suspended" }),
+      provider: makeProvider({licenseStatus: "suspended"}),
     });
     const result = await engine.evaluate(makeClaimRequest(), context);
 
@@ -344,7 +344,7 @@ describe("RulesEngine — full pipeline", () => {
   it("FLAG action does not stop the chain — subsequent rules still run", async () => {
     const engine = createDefaultRulesEngine();
     const result = await engine.evaluate(
-      makeClaimRequest({ cptCodes: ["99213"], billedAmount: 999 }), // triggers FLAG
+      makeClaimRequest({cptCodes: ["99213"], billedAmount: 999}), // triggers FLAG
       makeContext(),
     );
 
@@ -356,10 +356,10 @@ describe("RulesEngine — full pipeline", () => {
   it("denied claim due to uncovered CPT code", async () => {
     const engine = createDefaultRulesEngine();
     const context = makeContext({
-      plan: makePlan({ coveredCptCodes: ["99214"] }),
+      plan: makePlan({coveredCptCodes: ["99214"]}),
     });
     const result = await engine.evaluate(
-      makeClaimRequest({ cptCodes: ["99213"] }),
+      makeClaimRequest({cptCodes: ["99213"]}),
       context,
     );
 

@@ -3,8 +3,8 @@ import {
   assertTransition,
   getValidTransitions,
 } from "../engines/stateMachine";
-import { AppError } from "../types";
-import type { ClaimStatus } from "../types";
+import {AppError} from "../types";
+import type {ClaimStatus} from "../types";
 
 // ─── canTransition ─────────────────────────────────────────────────────────────
 
@@ -34,11 +34,11 @@ describe("canTransition — valid paths", () => {
 
 describe("canTransition — invalid paths", () => {
   const invalidPaths: Array<[ClaimStatus, ClaimStatus]> = [
-    ["PAID", "SUBMITTED"],       // Terminal state cannot restart
-    ["PAID", "DENIED"],          // Terminal state has no outbound transitions
-    ["DENIED", "SUBMITTED"],     // Terminal state
-    ["DENIED", "VALIDATED"],     // Terminal state
-    ["SUBMITTED", "PAID"],       // Must follow the full lifecycle
+    ["PAID", "SUBMITTED"], // Terminal state cannot restart
+    ["PAID", "DENIED"], // Terminal state has no outbound transitions
+    ["DENIED", "SUBMITTED"], // Terminal state
+    ["DENIED", "VALIDATED"], // Terminal state
+    ["SUBMITTED", "PAID"], // Must follow the full lifecycle
     ["SUBMITTED", "PATIENT_BILLED"], // Skips intermediate steps
     ["PATIENT_BILLED", "SUBMITTED"], // Cannot go backwards
     ["ADJUDICATED", "SUBMITTED"], // Cannot go backwards
